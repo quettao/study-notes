@@ -162,7 +162,7 @@ db.collection.insertMany(
 
 ```sql
 	# 更新操作
-	 # update() 方法用于更新已存在的文档
+	 # update() 方法用于更新已存在的文档,默认会使用新对象替换旧对象，updateOne(), updateMany(),updateReplace()
 	 db.collection.update(
      <query>,
      <update>,
@@ -213,6 +213,9 @@ db.inventory.deleteMany({ status : "A" })
 
 # 删除 status 等于 D 的一个文档：
 db.inventory.deleteOne( { status: "D" } )
+
+# 删除一个或多个, 默认情况下删除多个， remove(query, justOne), 第二个参数传入true，只会删除一个
+db.inventory.remove({status: "B"})
 ```
 
 ##### 4. 查询
@@ -380,4 +383,457 @@ select by_user, count(*) from mycol group by by_user
 ```
 
 ![image-20210827180315337](mongoDB.assets/image-20210827180315337.png)
+
+
+
+**管道的概念**
+
+MongoDB的聚合管道将MongoDB文档在一个管道处理完毕后将结果传递给下一个管道处理。管道操作是可以重复的。
+
+表达式：处理输入文档并输出。表达式是无状态的，只能用于计算当前聚合管道的文档，不能处理其它的文档。
+
+聚合框架中常用的几个操作：
+
+- $project：修改输入文档的结构。可以用来重命名、增加或删除域，也可以用于创建计算结果以及嵌套文档。
+- $match：用于过滤数据，只输出符合条件的文档。\$match使用MongoDB的标准查询操作。
+- $limit：用来限制MongoDB聚合管道返回的文档数。
+- $skip：在聚合管道中跳过指定数量的文档，并返回余下的文档。
+- $unwind：将文档中的某一个数组类型字段拆分成多条，每条包含数组中的一个值。
+- $group：将集合中的文档分组，可用于统计结果。
+- $sort：将输入文档排序后输出。
+- $geoNear：输出接近某一地理位置的有序文档。
+
+```sql
+# $project实例
+db.article.aggregate(
+    { $project : {
+        title : 1 ,
+        author : 1 ,
+    }}
+ );
+# 这样的话结果中就只还有_id,tilte和author三个字段，默认情况下_id字段是被包含的，如果要想不包含_id话可以这样:
+db.article.aggregate(
+    { $project : {
+        _id : 0 ,
+        title : 1 ,
+        author : 1
+    }});
+
+
+# $match实例
+db.articles.aggregate( [
+                        { $match : { score : { $gt : 70, $lte : 90 } } },
+                        { $group: { _id: null, count: { $sum: 1 } } }
+                       ] );
+# $match用于获取分数大于70小于或等于90记录，然后将符合条件的记录送到下一阶段$group管道操作符进行处理。
+
+# $skip实例 , 前五个文档被"过滤"掉。
+db.article.aggregate(
+    { $skip : 5 });
+
+```
+
+#### 7. 复制(副本集)
+
+复制提供了数据的冗余备份，并在多个服务器上存储数据副本，提高了数据的可用性， 并可以保证数据的安全性。
+
+复制还允许您从硬件故障和服务中断中恢复数据。
+
+##### 1. 什么是复制？
+
+- 保障数据的安全性
+- 数据高可用性 (24*7)
+- 灾难恢复
+- 无需停机维护（如备份，重建索引，压缩）
+- 分布式读取数据
+
+##### 2. 复制原理？
+
+复制至少需要两个节点。其中一个是主节点，负责处理客户端请求，其余的都是从节点，负责复制主节点上的数据。
+
+mongodb各个节点常见的搭配方式为：一主一从、一主多从。
+
+主节点记录在其上的所有操作==oplog==，从节点定期轮询主节点获取这些操作，然后对自己的数据副本执行这些操作，从而保证从节点的数据与主节点一致。
+
+MongoDB复制结构图如下所示：
+
+![image-20210831162251886](mongoDB.assets/image-20210831162251886.png)
+
+以上结构图中，客户端从主节点读取数据，在客户端写入数据到主节点时， 主节点与从节点进行数据交互保障数据的一致性。
+
+###### 副本集特征：
+
+- N 个节点的集群
+- 任何节点可作为主节点
+- 所有写入操作都在主节点上
+- 自动故障转移
+- 自动恢复
+
+###### MongoDB副本集设置
+
+```bash
+# 通过指定 --replSet 选项来启动mongoDB。--replSet 基本语法格式如下：
+mongod --port "PORT" --dbpath "YOUR_DB_DATA_PATH" --replSet "REPLICA_SET_INSTANCE_NAME"
+
+# 启动一个名为rs0的MongoDB实例，其端口号为27017。
+mongod --port 27017 --dbpath "D:\set up\mongodb\data" --replSet rs0
+
+# 添加副本集的成员，我们需要使用多台服务器来启动mongo服务。进入Mongo客户端，并使用rs.add()方法来添加副本集的成员。
+>rs.add(HOST_NAME:PORT)
+
+# 假设你已经启动了一个名为mongod1.net，端口号为27017的Mongo服务
+>rs.add("mongod1.net:27017")
+```
+
+#### 8. 分片
+
+当MongoDB存储海量的数据时，一台机器可能不足以存储数据，也可能不足以提供可接受的读写吞吐量。这时，我们就可以通过在多台机器上分割数据，使得数据库系统能存储和处理更多的数据。
+
+##### 1. 为什么使用分片？
+
+- 复制所有的写入操作到主节点
+
+- 延迟的敏感数据会在主节点查询
+
+- 单个副本集限制在12个节点
+
+- 当请求量巨大时会出现内存不足。
+
+- 本地磁盘不足
+
+- 垂直扩展价格昂贵
+
+  
+
+MongoDB中使用分片集群结构分布：
+
+![image-20210831163552014](mongoDB.assets/image-20210831163552014.png)
+
+上图中主要有如下所述三个主要组件：
+
+- Shard:
+
+  用于存储实际的数据块，实际生产环境中一个shard server角色可由几台机器组个一个replica set承担，防止主机单点故障
+
+- Config Server:
+
+  mongod实例，存储了整个 ClusterMetadata，其中包括 chunk信息。
+
+- Query Routers:
+
+  前端路由，客户端由此接入，且让整个集群看上去像单一数据库，前端应用可以透明使用。
+
+##### 2. 分片实例
+
+```bash
+# 分片结构端口分布如下：
+Shard Server 1：27020
+Shard Server 2：27021
+Shard Server 3：27022
+Shard Server 4：27023
+Config Server ：27100
+Route Process：40000
+
+# 步骤一：启动Shard Server
+[root@100 /]# mkdir -p /www/mongoDB/shard/s0
+[root@100 /]# mkdir -p /www/mongoDB/shard/s1
+[root@100 /]# mkdir -p /www/mongoDB/shard/s2
+[root@100 /]# mkdir -p /www/mongoDB/shard/s3
+[root@100 /]# mkdir -p /www/mongoDB/shard/log
+[root@100 /]# /usr/local/mongoDB/bin/mongod --port 27020 --dbpath=/www/mongoDB/shard/s0 --logpath=/www/mongoDB/shard/log/s0.log --logappend --fork
+....
+[root@100 /]# /usr/local/mongoDB/bin/mongod --port 27023 --dbpath=/www/mongoDB/shard/s3 --logpath=/www/mongoDB/shard/log/s3.log --logappend --fork
+
+# 步骤二： 启动Config Server
+[root@100 /]# mkdir -p /www/mongoDB/shard/config
+[root@100 /]# /usr/local/mongoDB/bin/mongod --port 27100 --dbpath=/www/mongoDB/shard/config --logpath=/www/mongoDB/shard/log/config.log --logappend --fork
+# 注意：这里我们完全可以像启动普通mongodb服务一样启动，不需要添加—shardsvr和configsvr参数。因为这两个参数的作用就是改变启动端口的，所以我们自行指定了端口就可以。
+
+# 步骤三： 启动Route Process
+/usr/local/mongoDB/bin/mongos --port 40000 --configdb localhost:27100 --fork --logpath=/www/mongoDB/shard/log/route.log --chunkSize 500
+# mongos启动参数中，chunkSize这一项是用来指定chunk的大小的，单位是MB，默认大小为200MB.
+
+# 步骤四： 配置Sharding
+# 接下来，我们使用MongoDB Shell登录到mongos，添加Shard节点
+[root@100 shard]# /usr/local/mongoDB/bin/mongo admin --port 40000
+MongoDB shell version: 2.0.7
+connecting to: 127.0.0.1:40000/admin
+mongos> db.runCommand({ addshard:"localhost:27020" })
+{ "shardAdded" : "shard0000", "ok" : 1 }
+......
+mongos> db.runCommand({ addshard:"localhost:27029" })
+{ "shardAdded" : "shard0009", "ok" : 1 }
+mongos> db.runCommand({ enablesharding:"test" }) #设置分片存储的数据库
+{ "ok" : 1 }
+mongos> db.runCommand({ shardcollection: "test.log", key: { id:1,time:1}})
+{ "collectionsharded" : "test.log", "ok" : 1 }
+
+# 步骤五： 程序代码内无需太大更改，直接按照连接普通的mongo数据库那样，将数据库连接接入接口40000
+```
+
+#### 9.数据备份与恢复
+
+##### 1. 备份
+
+==mongodump==命令可以通过参数指定导出的数据量级转存的服务器。
+
+语法如下：
+
+```sql
+>mongodump -h dbhost -d dbname -o dbdirectory
+```
+
+- -h：
+
+  MongoDB 所在服务器地址，例如：127.0.0.1，当然也可以指定端口号：127.0.0.1:27017
+
+- -d：
+
+  需要备份的数据库实例，例如：test
+
+- -o：
+
+  备份的数据存放位置，例如：c:\data\dump，当然该目录需要提前建立，在备份完成后，系统自动在dump目录下建立一个test目录，这个目录里面存放该数据库实例的备份数据。
+
+##### 2. 恢复
+
+使用 ==mongorestore== 命令来恢复备份的数据。
+
+语法如下：
+
+```sql
+>mongorestore -h <hostname><:port> -d dbname <path>
+```
+
+- --host <:port>, -h <:port>：
+
+  MongoDB所在服务器地址，默认为： localhost:27017
+
+- --db , -d ：
+
+  需要恢复的数据库实例，例如：test，当然这个名称也可以和备份时候的不一样，比如test2
+
+- --drop：
+
+  恢复的时候，先删除当前数据，然后恢复备份的数据。就是说，恢复后，备份后添加修改的数据都会被删除，慎用哦！
+
+- <path>：
+
+  mongorestore 最后的一个参数，设置备份数据所在位置，例如：c:\data\dump\test。
+
+  你不能同时指定 <path> 和 --dir 选项，--dir也可以设置备份目录。
+
+- --dir：
+
+  指定备份的目录
+
+  你不能同时指定 <path> 和 --dir 选项。 
+
+#### 10. 监控
+
+MongoDB中提供了==mongostat== 和 ==mongotop== 两个命令来监控MongoDB的运行情况。
+
+启动你的Mongod服务，进入到你安装的MongoDB目录下的bin目录， 然后输入mongostat命令，如下所示：
+
+```sql
+bin>mongostat
+
+bin>mongotop
+```
+
+#### 11.数据库引用
+
+MongoDB 引用有两种：
+
+- 手动引用（Manual References）
+- DBRefs、
+
+```sql
+# DBRef的形式：
+{ $ref : , $id : , $db :  }
+# $ref：集合名称
+# $id：引用的id
+# $db:数据库名称，可选参数
+
+# 实例中用户数据文档使用了 DBRef, 字段 address：
+{
+   "_id":ObjectId("53402597d852426020000002"),
+   "address": {
+   "$ref": "address_home",
+   "$id": ObjectId("534009e4d852427820000002"),
+   "$db": "runoob"},
+   "contact": "987654321",
+   "dob": "01-01-1991",
+   "name": "Tom Benzamin"
+}
+```
+
+#### 12. 覆盖索引查询
+
+- 所有的查询字段是索引的一部分
+- 所有的查询返回字段在同一个索引中
+
+```sql
+# 测试覆盖索引查询，使用以下 users 集合:
+{
+   "_id": ObjectId("53402597d852426020000002"),
+   "contact": "987654321",
+   "dob": "01-01-1991",
+   "gender": "M",
+   "name": "Tom Benzamin",
+   "user_name": "tombenzamin"
+}
+
+# 在 users 集合中创建联合索引，字段为 gender 和 user_name :
+>db.users.ensureIndex({gender:1,user_name:1})
+
+# 该索引会覆盖以下查询：
+>db.users.find({gender:"M"},{user_name:1,_id:0})
+
+# 实例没有排除_id，查询就不会被覆盖：
+>db.users.find({gender:"M"},{user_name:1})
+
+# 如果是以下的查询，不能使用覆盖索引查询：
+ # 1. 所有索引字段是一个数组
+ # 2. 所有索引字段是一个子文档
+```
+
+#### 13. 查询分析
+
+查询分析常用函数有：==explain()== 和 ==hint()==。
+
+##### 1. 使用 explain()
+
+```sql
+#  users 集合中创建 gender 和 user_name 的索引：
+>db.users.ensureIndex({gender:1,user_name:1})
+
+# 查询语句中使用 explain ：
+>db.users.find({gender:"M"},{user_name:1,_id:0}).explain()
+
+#  explain() 查询返回如下结果：
+{
+   "cursor" : "BtreeCursor gender_1_user_name_1",
+   "isMultiKey" : false,
+   "n" : 1,
+   "nscannedObjects" : 0,
+   "nscanned" : 1,
+   "nscannedObjectsAllPlans" : 0,
+   "nscannedAllPlans" : 1,
+   "scanAndOrder" : false,
+   "indexOnly" : true,
+   "nYields" : 0,
+   "nChunkSkips" : 0,
+   "millis" : 0,
+   "indexBounds" : {
+      "gender" : [
+         [
+            "M",
+            "M"
+         ]
+      ],
+      "user_name" : [
+         [
+            {
+               "$minElement" : 1
+            },
+            {
+               "$maxElement" : 1
+            }
+         ]
+      ]
+   }
+}
+# indexOnly: 字段为 true ，表示我们使用了索引。
+# cursor：因为这个查询使用了索引，MongoDB 中索引存储在B树结构中，所以这是也使用了 BtreeCursor 类型的游标。如果没有使用索引，游标的类型是 BasicCursor。这个键还会给出你所使用的索引的名称，你通过这个名称可以查看当前数据库下的system.indexes集合来得到索引的详细信息。
+# n：当前查询返回的文档数量。
+# nscanned/nscannedObjects：表明当前这次查询一共扫描了集合中多少个文档，我们的目的是，让这个数值和返回文档的数量越接近越好。
+# millis：当前查询所需时间，毫秒数。
+# indexBounds：当前查询具体使用的索引。
+```
+
+##### 2.  使用hint()
+
+```sql
+# 查询实例指定了使用 gender 和 user_name 索引字段来查询：
+>db.users.find({gender:"M"},{user_name:1,_id:0}).hint({gender:1,user_name:1})
+
+# 使用 explain() 函数来分析以上查询：
+>db.users.find({gender:"M"},{user_name:1,_id:0}).hint({gender:1,user_name:1}).explain()
+```
+
+#### 14. 原子操作
+
+==mongodb不支持事务==，但是mongodb提供了许多原子操作，比如文档的保存，修改，删除等，都是原子操作。
+
+所谓原子操作就是要么这个文档保存到Mongodb，要么没有保存到Mongodb，不会出现查询到的文档没有保存完整的情况。
+
+```sql
+# 原子操作常用命令
+
+# $set 用来指定一个键并更新键值，若键不存在并创建。
+{ $set : { field : value } }
+
+# $unset 用来删除一个键。
+{ $unset : { field : 1} }
+
+# $inc 可以对文档的某个值为数字型（只能为满足要求的数字）的键进行增减的操作。
+{ $inc : { field : value } }
+
+# $push 把value追加到field里面去，field一定要是数组类型才行，如果field不存在，会新增一个数组类型加进去。
+{ $push : { field : value } }
+
+# $pushAll 同$push,只是一次可以追加多个值到一个数组字段内。
+{ $pushAll : { field : value_array } }
+
+# $pull 从数组field内删除一个等于value值。
+{ $pull : { field : _value } }
+
+# $addToSet 增加一个值到数组内，而且只有当这个值不在数组内才增加。
+
+# $pop 删除数组的第一个或最后一个元素
+{ $pop : { field : 1 } }
+
+# $rename 修改字段名称
+{ $rename : { old_field_name : new_field_name } }
+
+# $bit 位操作，integer类型
+{$bit : { field : {and : 5}}}
+```
+
+#### 15. 索引限制
+
+##### 1. 额外开销
+
+每个索引占据一定的存储空间，在进行插入，更新和删除操作时也需要对索引进行操作。所以，如果你很少对集合进行读取操作，建议不使用索引。
+
+##### 2. 内存(RAM)使用
+
+由于索引是存储在内存(RAM)中,你应该确保该索引的大小不超过内存的限制。
+
+如果索引的大小大于内存的限制，MongoDB会删除一些索引，这将导致性能下降。
+
+##### 3. 查询限制
+
+索引不能被以下的查询使用：
+
+- 正则表达式及非操作符，如 $nin, \$not, 等。
+- 算术运算符，如 $mod, 等。
+- $where 子句
+
+所以，检测你的语句是否使用索引是一个好的习惯，可以用explain来查看。
+
+##### 4. 索引键限制
+
+从2.6版本开始，如果现有的索引字段的值超过索引键的限制，MongoDB中不会创建索引。
+
+##### 5. 插入文档超过索引键限制
+
+如果文档的索引字段值超过了索引键的限制，MongoDB不会将任何文档转换成索引的集合。与mongorestore和mongoimport工具类似。
+
+##### 6. 最大范围
+
+- 集合中索引不能超过64个
+- 索引名的长度不能超过128个字符
+- 一个复合索引最多可以有31个字段
 
