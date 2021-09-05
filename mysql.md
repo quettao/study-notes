@@ -18,10 +18,10 @@ show global variables;
 show gloabl variables like '%char%';
 
 # 查看哪些表被加锁了
-show open tables; // 有 1 的被加锁了， 0 的没有
+show open tables; # 有 1 的被加锁了， 0 的没有
 
 # 可以通过检查 table_locks_waited 和 table_locks_immediate 状态变量来分析系统上的表锁定：
- SQL: show status like 'table%';
+show status like 'table%';
 # Table_locks_immediate: 产生表级锁定的次数，表示可以立即获取锁的查询次数，每立即获取锁值加1；
 # Table_locks_waited: 出现表级锁定争用而发生等待的次数(不能立即获取锁的次数，每等待一次锁值加1)，比值高则说明存在着较严重的表级锁争用的情况；
  
@@ -68,7 +68,8 @@ show open tables; // 有 1 的被加锁了， 0 的没有
 
  #  rows: 根据表统计信息及索引选用情况，大致估算出找到所需的记录所需要读取的行数
    
- #  extra: 包含不适合在其他列中显示但十分重要的额外信息,group by, order by的信息
+ #  extra: 包含不适合在其他列中显示但十分重要的额外信息,group by, order by的信息  
+ 
 ```
 
 #### mysql 底层原理
@@ -123,6 +124,7 @@ create table student(
   name varchar(20),
   score int(3)
 );
+-
 
 # 查看数据库里存在的表
 show tables;
