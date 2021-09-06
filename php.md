@@ -157,3 +157,142 @@ GET请求会被浏览器主动cache，而POST不会，除非手动设置。
 #### 12. 为什么大型网站要使用消息队列？
 
 消息队列常见的使用场景有很多，但是比较核心的有 3 个：解耦、异步、削峰 
+
+#### 13. Memcache和redis区别？
+
+Memcache
+  该产品本身特别是数据在内存里边的存储，如果服务器突然断电，则全部数据就会丢失
+  单个key（变量）存放的数据有1M的限制
+  存储数据的类型都是String字符串类型
+  本身没有持久化功能
+  可以使用多核（多线程）
+ Redis
+  数据类型比较丰富:String、List、Set、Sortedset、Hash
+  有持久化功能，可以把数据随时存储在磁盘上
+  本身有一定的计算功能
+  单个key（变量）存放的数据有1GB的限制
+
+#### 14. 如何设计一个高并发系统？
+
+   1.系统拆分 将一个系统拆分为多个子系统，用 dubbo 来搞。然后每个系统连一个数据库，这样本来就一个库，现在多个数据库，不也可以扛高并发么。
+   2.缓存 缓存，必须得用缓存。大部分的高并发场景，都是读多写少，那你完全可以在数据库和缓存里都写一份，然后读的时候大量走缓存不就得了。毕竟人家 redis 轻轻松松单机几万的并发。所以你可以考虑考虑你的项目里，那些承载主要请求的读场景，怎么用缓存来抗高并发。
+   3.MQ MQ，必须得用 MQ。可能你还是会出现高并发写的场景，比如说一个业务操作里要频繁搞数据库几十次，增删改增删改，疯了。那高并发绝对搞挂你的系统，你要是用 redis 来承载写那肯定不行，人家是缓存，数据随时就被 LRU 了，数据格式还无比简单，没有事务支持。所以该用
+   4.mysql 还得用 mysql 啊。那你咋办？用 MQ 吧，大量的写请求灌入 MQ 里，排队慢慢玩儿，后边系统消费后慢慢写，控制在 mysql 承载范围之内。所以你得考虑考虑你的项目里，那些承载复杂写业务逻辑的场景里，如何用 MQ 来异步写，提升并发性。MQ 单机抗几万并发也是 ok 的，这个之前还特意说过。
+   5.分库分表 分库分表，可能到了最后数据库层面还是免不了抗高并发的要求，好吧，那么就将一个数据库拆分为多个库，多个库来扛更高的并发；然后将一个表拆分为多个表，每个表的数据量保持少一点，提高 sql 跑的性能。
+   6.读写分离 读写分离，这个就是说大部分时候数据库可能也是读多写少，没必要所有请求都集中在一个库上吧，可以搞个主从架构，主库写入，从库读取，搞一个读写分离。读流量太多的时候，还可以加更多的从库。
+   7.ElasticSearch Elasticsearch，简称 es。es 是分布式的，可以随便扩容，分布式天然就可以支撑高并发，因为动不动就可以扩容加机器来扛更高的并发。那么一些比较简单的查询、统计类的操作，可以考虑用 es 来承载，还有一些全文搜索类的操作，也可以考虑用 es 来承载。
+
+#### 15. PHP-FPM 的运行方式？
+
+static(静态) ：表示在 php-fpm 运行时直接 fork 出 pm.max_children 个子进程，
+   dynamic(动态)：表示，运行时 fork 出 start_servers 个进程，随着负载的情况，动态的调整，最多不超过 max_children 个进程。
+   一般推荐用 static ，优点是不用动态的判断负载情况，提升性能；缺点是多占用些系统内存资源。
+
+#### 16. PHP-FPM 子进程数量，是不是越多越好？
+
+当然不是，pm.max_chindren，进程多了，增加进程管理的开销以及上下文切换的开销。更核心的是，能并发执行的 php-fpm 进程不会超过 cpu 个数。如何设置，取决于你的代码。如果代码是 CPU 计算密集型的，pm.max_chindren 不能超过 CPU 的内核数。如果不是，那么将 pm.max_chindren 的值大于 CPU 的内核数，是非常明智的。国外技术大拿给出适用于 dynamic 方式的公式： 在 N + 20% 和 M / m 之间。
+   .N 是 CPU 内核数量。
+   .M 是 PHP 能利用的内存数量。
+   .m 是每个 PHP 进程平均使用的内存数量。
+   *static方式的公式：M / (m 1.2)**
+   当然，还有一种保险的方式，来配置 max_children。 先把 max_children 设置成一个比较大的值。稳定运行一段时间后，观察 php-fpm 的 status 里的 max active processes 是多少，然后把 max_children 配置比它大一些就可以了。
+   pm.max_requests：指的是每个子进程在处理了多少个请求数量之后就重启。这个参数，理论上可以随便设置，但是为了预防内存泄漏的风险，还是设置一个合理的数比较好。
+
+#### 17. JSON Web Token令牌(JWT)的原理?
+
+   1.jwt原理：服务器认证以后，生成一个JSON对象，发回给用户，用户与服务器通信的时候，都要发回这个JSON对象。服务器完全只靠这个对象认定用户身份。为了防止用户篡改数据，服务器在生成这个对象的时候，会加上签名。
+   2.jwt与session的区别？
+	1)session存储在服务端占用服务器资源，而JWT存储在客户端
+	2）session存储在Cookie中，存在伪造跨站请求伪造攻击的风险
+	3）session只存在一台服务器上，那么下次请求就必须请求这台服务器，不利于分布式应用
+	4）存储在客户端的JWT比存储在服务器的session更具有扩展性
+   3.JWT流程说明？
+	1，浏览器发起请求登陆，携带用户名和密码；
+	2，服务端验证身份，根据算法，将用户标识符打包生成 token,
+	3，服务器返回JWT信息给浏览器，JWT不包含敏感信息；
+	4，浏览器发起请求获取用户资料，把刚刚拿到的 token一起发送给服务器；
+	5，服务器发现数据中有 token，验明正身；
+	6，服务器返回该用户的用户资料；
+   4.JWT的优缺点？
+	1、JWT默认不加密，但可以加密。生成原始令牌后，可以使用改令牌再次对其进行加密。
+	2、当JWT未加密方法时，一些私密数据无法通过JWT传输。
+	3、JWT不仅可用于认证，还可用于信息交换。善用JWT有助于减少服务器请求数据库的次数。
+	4、JWT的最大缺点是服务器不保存会话状态，所以在使用期间不可能取消令牌或更改令牌的权限。也就是说，一旦JWT签发，在有效期内将会一直有效。
+	5、JWT本身包含认证信息，因此一旦信息泄露，任何人都可以获得令牌的所有权限。为了减少盗用，JWT的有效期不宜设置太长。对于某些重要操作，用户在使用时应该每次都进行进行身份验证。
+	6、为了减少盗用和窃取，JWT不建议使用HTTP协议来传输代码，而是使用加密的HTTPS协议进行传输。
+   5.JWT的数据结构？
+	1.JWT的消息构成？
+	   一个token分3部分，按顺序：头部(header)、载荷(payload)、签证(signature)
+	   对象为一个很长的字符串，字符之间用“.”分隔符分为三个子串
+	   1.JWT的头部承载两部分信息：1.声明类型，这里是jwt,2.声明加密算法，通常为SHA256
+	   2.JWT载荷部分也是一个JSON对象，可增加自定义信息，官方定义了7个字段：
+		iss (issuer)：签发人
+		exp (expiration time)：过期时间
+		sub (subject)：主题
+		aud (audience)：受众
+		nbf (Not Before)：生效时间
+		iat (Issued At)：签发时间
+		jti (JWT ID)：编号
+	   3.签名部分是对前两部分的签名，防止数据篡改
+		首先，需要指定一个密匙（secret），这个密匙只有服务器才知道，不能泄露给用户，然后使用
+		header里面签名算法，按照下面的公式产生签名：
+	HMACSHA256( base64UrlEncode(header) + "." + base64UrlEncode(payload), secret)
+   	// Base64 有三个字符+、/和=，在 URL 里面有特殊含义，所以要被替换掉：=被省略、+替换成-，/替换成_ 。这就是 Base64URL 算法。
+    6.JWT的用法？
+	客户端接收服务器返回的JWT，将其存储在Cookie或localStorage中，此后，客户端将在于服务器交互中都会带JWT。如果将它存储在Cookie中，就可以自动发送，但是不会跨域，因此一般是将它放入HTTP请求的header Authorization字段中。
+	Authorization: Bearer <token>
+	当跨域时，也可以将JWT被放置于POST请求的数据主体中。
+
+#### 18. php判断是爬虫在访问还是用户浏览器在访问?
+
+主要就是判断$_SERVER['HTTP_USER_AGENT'];里面的内容有没有爬虫的标志
+
+#### 19. $_SERVER参数说明？
+
+```php
+	$_SERVER["SCRIPT_NAME"] => "/index.php"，// 当前脚本路径
+	$_SERVER["REQUEST_URI"] => "/index.php?id=1"，// 访问的页面URI，包含查询字符串
+	$_SERVER["QUERY_STRING"] => "id=1"，// 查询字符串，不存在为" "
+	$_SERVER["REQUEST_METHOD"] => "GET"，// 请求方法，如"POST"、"PUT"等
+	$_SERVER["SERVER_PROTOCOL"] => "HTTP/1.1"，// 通信协议的名称和版本
+	$_SERVER["GATEWAY_INTERFACE"] => "CGI/1.1"，// 服务器使用的CGI 规范的版本
+	$_SERVER["REMOTE_PORT"] => "60599"，// 用户连接服务器使用的端口
+	$_SERVER["SCRIPT_FILENAME"] => "E:/WWW/example/index.php"，// 当前脚本的绝对路径
+	$_SERVER["DOCUMENT_ROOT"] => "E:/WWW/example/"，// 当前脚本文档根目录的绝对路径
+	$_SERVER["REMOTE_ADDR"] => "127.0.0.1"，// 用户的IP地址
+	$_SERVER["SERVER_PORT"] => "80"，// 服务器使用的端口
+	$_SERVER["SERVER_ADDR"] => "127.0.0.1"，// 服务器的IP地址
+	$_SERVER["SERVER_NAME"] => "www.example.com"，// 服务器的主机名
+	$_SERVER["SERVER_SOFTWARE"] => "Apache/2.4.23 (Win32) OpenSSL/1.0.2j mod_fcgid/2.3.9"，// 响应头中Server的内容
+	$_SERVER["SERVER_SIGNATURE"] => ""，// 包含了服务器版本和虚拟主机名的字符串
+	$_SERVER["HTTP_HOST"] => "www.example.com"，// 请求头中Host项的内容
+	$_SERVER["HTTP_CONNECTION"] => "keep-alive"，// 请求头中Connection项的内容
+	$_SERVER["HTTP_PRAGMA"] => "no-cache"，// 请求头中Pragma项的内容
+	$_SERVER["HTTP_CACHE_CONTROL"] => "no-cache"，// 请求头中Cache-Control项的内容
+	$_SERVER["HTTP_UPGRADE_INSECURE_REQUESTS"] => "1"，// 请求头中Upgrade-Insecure-Requests项的内容
+	$_SERVER["HTTP_USER_AGENT"] => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 	AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36"，// 请求头中User-Agent项的内容
+	$_SERVER["HTTP_ACCEPT"] => "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,/;q=0.8"，// 请求头中Accept项的内容
+	$_SERVER["HTTP_ACCEPT_ENCODING"] => "gzip, deflate"，// 请求头中Accept-Encoding项的内容
+$	_SERVER["HTTP_ACCEPT_LANGUAGE"] => "zh-CN,zh;q=0.8"，// 请求头中Accept-Language项的内容
+	$_SERVER["PHP_SELF"] => "/index.php"，// 当前执行脚本的文件名
+	$_SERVER["REQUEST_TIME_FLOAT"] => 1510112348.8084，// 请求开始的时间戳，微秒级别精准度
+	$_SERVER["REQUEST_TIME"] => 1510112348，// 请求开始的时间戳
+```
+
+#### 20. PHP上传文件时 $_FILES 为空，可能的原因及解决方法?
+
+出现这个问题的原因主要有两个：表单原因或者php设置原因：
+	1) 上传文件的表单编码类型必须设置成 enctype="multipart/form-data"
+	2) php配置问题
+	   (1) 在 php.ini 里查找 max_execution_time 默认脚本最大执行30秒，这里可以改为 max_execution_time = 0 ; 表示没有时间限制，或在php文件头部添加：ini_set('max_execution_time',0);
+	   (2) 修改 post_max_size 设定 POST 数据所允许的最大大小。此设定也影响到文件上传， 在php.ini查找 post_max_size 改为 post_max_size = 50M
+	   (3) 很多人都会改了第二步.但上传文件时最大仍然为 8M. 这是为什么呢.我们还要改一个参数
+	   upload_max_filesize 表示所上传的文件的最大大小。 在php.ini查找 upload_max_filesize ,默认为8M改为upload_max_filesize = 20M ，另外要说明的是，post_max_size 大于 upload_max_filesize 为佳。
+
+#### 21. 单链表数据反转？
+
+例如：1—>2—>3—>4 反转成：4—>3—>2—>1
+    方式一：遍历节点，反转每个节点，也叫头插法，因为节点依次插入了新链表的头部
+	因为单链表只有指向下一个节点的指针，没有指向上个节点的指针。所以我们可以定义个指针指向上个节点，这样我们遍历链表，把每个指向下个节点的指针，指向上个节点，这样每个节点都指向了上个节点，实现了反转
+    方式二：借助栈的特性，先进后出，实现单链表的反转
+
