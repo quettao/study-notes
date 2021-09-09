@@ -1,5 +1,376 @@
 ### php
 
+### php7新特性
+
+#### 1. 标量类型声明
+
+```php
+<?php
+
+function arraysSum(array ...$arrays): array
+{
+    return array_map(function(array $array): int {
+        return array_sum($array);
+    }, $arrays);
+}
+
+print_r(arraysSum([1,2,3], [4,5,6], [7,8,9]));
+
+/**
+Array
+(
+    [0] => 6
+    [1] => 15
+    [2] => 24
+)
+*/
+```
+
+#### 2. null合并运算符
+
+```php
+# null合并运算符 (??) 这个语法糖。如果变量存在且值不为null， 它就会返回自身的值，否则返回它的第二个操作数。
+$username = $_GET['user'] ?? 'nobody';
+```
+
+#### 3. 太空舱操作符
+
+```php
+# 当$a小于、等于或大于$b时它分别返回-1、0或1。
+// 整数
+echo 1 <=> 1; // 0
+echo 1 <=> 2; // -1
+echo 2 <=> 1; // 1
+```
+
+#### 4. 通过 define() 定义常量数组
+
+```php
+<?php
+define('ANIMALS', [
+    'dog',
+    'cat',
+    'bird'
+]);
+
+echo ANIMALS[1]; // 输出 "cat"
+?>
+```
+
+#### 5. 匿名类
+
+通过`new class` 来实例化一个匿名类，这可以用来替代一些“用后即焚”的完整类定义。
+
+```php
+$app = new Application;
+$app->setLogger(new class implements Logger {
+    public function log(string $msg) {
+        echo $msg;
+    }
+});
+```
+
+#### 6.  namespace 导入的类、函数和常量现在可以通过单个 use语句 一次性导入了。
+
+```php
+use some\namespace\{ClassA, ClassB, ClassC as C};
+```
+
+#### 7. 生成器可以返回表达式
+
+```php
+$gen = (function() {
+    yield 1;
+    yield 2;
+
+    return 3;
+})();
+
+foreach ($gen as $val) {
+    echo $val, PHP_EOL;
+}
+
+echo $gen->getReturn(), PHP_EOL;
+// 结果
+1
+2
+3
+```
+
+#### 8. 整数除法函数intdiv()
+
+```php
+var_dump(intdiv(10, 3)); // int(3)
+```
+
+#### 9. 可为空(Nullable)类型
+
+参数以及返回值的类型现在可以通过在类型前加上一个==问号==使之允许为空。 当启用这个特性时，传入的参数或者函数返回的结果要么是给定的类型，要么是 null 。
+
+```php
+function testReturn(): ?string
+{
+    return 'elePHPant';
+}
+
+function testReturn(): ?string
+{
+    return null;
+}
+```
+
+#### 10. void 函数
+
+回值声明为 void 类型的方法要么干脆省去 return 语句，要么使用一个空的 return 语句。 对于 void 函数来说，**`null`** 不是一个合法的返回值。
+
+```php
+function swap(&$left, &$right) : void
+{
+    if ($left === $right) {
+        return;
+    }
+
+    $tmp = $left;
+    $left = $right;
+    $right = $tmp;
+}
+
+$a = 1;
+$b = 2;
+var_dump(swap($a, $b), $a, $b);
+// 结果
+null
+int(2)
+int(1)
+```
+
+试图去获取一个 void 方法的返回值会得到 **`null`** ，并且不会产生任何警告。这么做的原因是不想影响更高层次的方法。
+
+#### 11. 类常量可见性
+
+```php
+class ConstDemo
+{
+    const PUBLIC_CONST_A = 1;
+    public const PUBLIC_CONST_B = 2;
+    protected const PROTECTED_CONST = 3;
+    private const PRIVATE_CONST = 4;
+}
+```
+
+#### 12. 多异常捕获处理
+
+一个catch语句块现在可以通过管道字符(`|`)来实现多个异常的捕获。 这对于需要同时处理来自不同类的不同异常时很有用。
+
+```php
+try {
+    // some code
+} catch (FirstException | SecondException $e) {
+    // handle first and second exceptions
+}
+```
+
+#### 13. list()现在支持键名
+
+```php
+$data = [
+    ["id" => 1, "name" => 'Tom'],
+    ["id" => 2, "name" => 'Fred'],
+];
+
+// list() style
+list("id" => $id1, "name" => $name1) = $data[0];
+```
+
+#### 14. 异步信号处理
+
+一个新的名为==pcntl_async_signals()==的方法现在被引入， 用于启用无需 ticks （这会带来很多额外的开销）的异步信号处理。
+
+```php
+pcntl_async_signals(true); // turn on async signals
+
+pcntl_signal(SIGHUP,  function($sig) {
+    echo "SIGHUP\n";
+});
+
+posix_kill(posix_getpid(), SIGHUP); 
+// 结果： SIGHUP
+
+```
+
+#### 15. 属性添加限定类型
+
+```php
+# 下面的例子中，会强制要求 $user->id 只能为 int 类型，同时 $user->name 只能为 string 类型。
+class User {
+    public int $id;
+    public string $name;
+}
+```
+
+#### 16. 箭头函数
+
+```php
+$factor = 10;
+$nums = array_map(fn($n) => $n * $factor, [1, 2, 3, 4]);
+// $nums = array(10, 20, 30, 40);
+```
+
+#### 17. 空合并运算符赋值
+
+```php
+$array['key'] ??= computeDefault();
+// 等同于以下旧写法
+if (!isset($array['key'])) {
+    $array['key'] = computeDefault();
+}
+```
+
+#### 18. 数组展开操作
+
+```php
+$parts = ['apple', 'pear'];
+$fruits = ['banana', 'orange', ...$parts, 'watermelon'];
+// ['banana', 'orange', 'apple', 'pear', 'watermelon'];
+```
+
+#### 19. 数值文字分隔符
+
+```php
+6.674_083e-11; // float
+299_792_458;   // decimal
+0xCAFE_F00D;   // hexadecimal
+0b0101_1111;   // binary
+```
+
+#### 20. 允许从 __toString() 抛出异常
+
+现在允许从 ==__toString()==抛出异常。之前的版本，将会导致一个致命错误。新版本中，之前发生致命错误的代码，已经被转换为 Error 异常。
+
+### php8 新特性
+
+#### 1. 命名参数
+
+==命名参数允许根据参数名而不是参数位置向函数传参==。这使得参数的含义自成体系，参数与顺序无关，并允许任意跳过默认值。
+
+命名参数通过在参数名前加上冒号来传递。允许使用保留关键字作为参数名。参数名必须是一个标识符，不允许动态指定。
+
+```php
+myFunction(paramName: $value);
+array_foobar(array: $value);
+
+// NOT supported.
+function_name($variableStoringParamName: $value);
+
+// 使用顺序传递参数：
+array_fill(0, 100, 50);
+
+// 使用命名参数：
+array_fill(start_index: 0, count: 100, value: 50);
+
+array_fill(value: 50, count: 100, start_index: 0);
+```
+
+#### 2. 构造器属性提升
+
+构造器的参数也可以相应提升为类的属性。
+
+```php
+class Point {
+    protected int $x;
+    protected int $y;
+
+    public function __construct(int $x, int $y = 0) {
+        $this->x = $x;
+        $this->y = $y;
+    }
+}
+
+// 等同于上面的例子
+class Point {
+    public function __construct(protected int $x, protected int $y = 0) {
+    }
+}
+```
+
+#### 3. 联合类型
+
+联合类型接受多个不同的类型做为参数。声明联合类型的语法为 `T1|T2|...`。
+
+#### 4. match表达式
+
+```php
+# match, 这个关键字的作用跟switch有点类似。
+# switch
+switch ($input) {
+    case "true":
+        $result = 1;
+    break;
+    case "false":
+        $result = 0;
+    break;
+    case "null":
+        $result = NULL;
+    break;
+}
+
+# match 等同于上面
+$result = match($input) {
+        "true" => 1,
+        "false" => 0,
+        "null" => NULL,
+};
+
+# 并且，类似switch的多个case一个block一样，match的多个条件也可以写在一起，比如:
+$result = match($input) {
+    "true", "on" => 1,
+    "false", "off" => 0,
+    "null", "empty", "NaN" => NULL,
+};
+
+# 需要注意的和switch不太一样的是，以前我们用switch可能会经常遇到这种诡异的问题:
+$input = "2 person";
+switch ($input) {
+    case 2:
+        echo "bad";
+    break;
+}
+# 你会发现，bad竟然被输出了，这是因为switch使用了宽松比较(==)。match就不会有这个问题了, 它使用的是严格比较(===)，就是值和类型都要完全相等。
+
+# 还有就是，当input并不能被match中的所有条件满足的时候，match会抛出一个UnhandledMatchError exception:
+$input = "false";
+$result = match($input) {
+        "true" => 1,
+};
+// 结果
+Fatal error: Uncaught UnhandledMatchError: Unhandled match value of type string
+```
+
+#### 5. Nullsafe方法和属性
+
+属性和方法可以通过 "nullsafe" 操作符访问：==?->==
+
+此操作的结果，类似于在每次访问前使用 is_null() 函数判断方法和属性是否存在，但更加简洁。
+
+```php
+// 自 PHP 8.0.0 起可用
+$result = $repository?->getUser(5)?->name;
+
+// 上边那行代码等价于以下代码
+if (is_null($repository)) {
+    $result = null;
+} else {
+    $user = $repository->getUser(5);
+    if (is_null($user)) {
+        $result = null;
+    } else {
+        $result = $user->name;
+    }
+}
+```
+
+
+
 ### 问题
 
 #### 1. php array 底层原理？
