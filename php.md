@@ -470,7 +470,7 @@ PHP-FPM：是 PHP（Web Application）对 Web Server 提供的 FastCGI 协议的
        打印登录后的页面
        登录成功后便可以利用该cookie访问其他需要登录才能访问的页面。
 
-#### 8. $a=[0,1,2,3]; $b=[1,2,3,4,5]; $a+=$b; echo json_encode($a) ？
+#### 8. \$a=[0,1,2,3]; \$b=[1,2,3,4,5];\$a+=\$b; echo json_encode($a) ？
 
 答：[0,1,2,3,5] // array＋array合并数组则会把最先出现的值作为最终结果返回
 
@@ -666,4 +666,53 @@ $	_SERVER["HTTP_ACCEPT_LANGUAGE"] => "zh-CN,zh;q=0.8"，// 请求头中Accept-La
     方式一：遍历节点，反转每个节点，也叫头插法，因为节点依次插入了新链表的头部
 	因为单链表只有指向下一个节点的指针，没有指向上个节点的指针。所以我们可以定义个指针指向上个节点，这样我们遍历链表，把每个指向下个节点的指针，指向上个节点，这样每个节点都指向了上个节点，实现了反转
     方式二：借助栈的特性，先进后出，实现单链表的反转
+
+## PHP底层原理
+
+### 数组
+
+**PHP数组底层数据结构** 
+
+ PHP 数组底层依赖的散列表数据结构定义如下（位于 Zend/zend_types.h）：
+
+```c
+typedef struct _zend_array HashTable;
+
+struct _zend_array {
+    zend_refcounted_h gc;
+    union {
+       struct {
+           ZEND_ENDIAN_LOHI_4(
+               zend_uchar	flags,
+               zend_uchar	_unused,
+               zend_uchar	nIteratorsCount,
+               zend_uchar	_unused2)
+       } v;
+        uint32_t flags;
+    } u;
+    // 用于散列函数映射存储元素在arData数组中的下标: nTableMask=~nTableSize+1
+    uint32_t		nTableMask;
+    // 存在元素数组，每个元素的结构统一为 Bucket, arData 指向第一个Bucket
+    Bucket		*arData;
+    // 已用Bucket 数 (包含无效元素)
+    uint32_t		nNumOfElements;
+    // 数组总容量(2的幂次方)
+    uint32_t		nTableSize;
+    uint32_t		nInternalPointer;
+    // 下一个可用的数值索引
+    zend_long		nNextFreeElement;
+    // 删除或覆盖数组中某个元素时对旧元素进行清理
+    dtor_func_t		pDestructor;
+}
+```
+
+ 这个散列表中有很多成员，我们挑几个比较重要的来讲讲：
+
+- arData：散列表中保存存储元素的数组，其内存是连续的，arData指向数组的起始位置；
+- nTableSize：数组的总容量，即可以容纳的元素数，arData 的内存大小就是根据这个值确定的，它的大小的是2的幂次方，最小为8，然后按照 8、16、32...依次递增；
+- nTableMask：这个值在散列函数根据 key 的哈希值映射元素的时候用到，它的值实际就是 nTableSize 的负数，即 nTableMask = -nTableSize，用位运算来表示就是 nTableMask = ~nTableSize+1；
+- nNumUsed、nNumOfElements：nNumUsed 是指数组当前使用的 Bucket 数，但不是数组有效元素个数，因为某个数组元素被删除后并没有立即从数组中删除，而是将其标记为 IS_UNDEF，只有在数组需要扩容时才会真正删除，nNumOfElements 则表示数组中有效的元素数量，即调用 count 函数返回值，如果没有扩容，nNumUsed 一直递增，无论是否删除元素；
+- nNextFreeElement：这个是给自动确定数值索引使用的，默认从 0 开始，比如 $arr[] = 200，这个时候 nNextFreeElement 值会自动加 1；
+- pDestructor：当删除或覆盖数组中的某个元素时，如果提供了这个函数句柄，则在删除或覆盖时调用此函数，对旧元素进行清理；
+- u：这个联合体结构主要用于一些辅助作用
 
