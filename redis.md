@@ -36,8 +36,12 @@ publish 主题 message # 往主题中发送信息
 
 1. 数据冗余：主从复制实现了数据的热备份，是持久化之外的一种数据冗余方式。
 
- 	2. 故障恢复：当主节点出现问题时，可以由从节点提供服务，实现快速的故障恢复
- 	3. 负载均衡：在主从复制的基础上，配合读写分离，可以由主节点提供写服务，从节点提供读服务，分担服务器负载，尤其是在写少读多的情况下，通过多个从节点分担读负载，可以大大提高redis服务器并发量
+  2. 故障恢复：当主节点出现问题时，可以由从节点提供服务，实现快速的故障恢复
+
+  3. 负载均衡：在主从复制的基础上，配合读写分离，可以由主节点提供写服务，从节点提供读服务，分担服务器负载，尤其是在写少读多的情况下，通过多个从节点分担读负载，可以大大0
+
+     提高redis服务器并发量
+
  	4. 高可用基石：主从复制还是哨兵和集群能够实施的基础，因此说主从复制是redis高可用的基础。
 
 ##### 主从配置
@@ -73,13 +77,145 @@ master接到命令，启动后台的存盘进程，同时收集所有接收到�
 
 然而一个哨兵进程对redis服务器进行监控，可能会出现问题，为此，我们可以使用多个哨兵进行监控，各个哨兵之间还会进行监控，这就形成了多哨兵模式
 
-![1630071868177](redis.assets/1630071868177.png)
+![1630071868177](redis.assets/1630071868177.png)                
+ ""
 
 假设主服务器宕机，哨兵1先检测到这个结果，系统并不会马上进行failover过程，仅仅是哨兵1主观的认为主服务器不可用，这个现象称为**主观下线**，当后面的哨兵也检测到主服务器不可用，并且数量达到一定值时，那么哨兵之间就会进行一次投票，投票的结果由一个哨兵发起，进行failover[故障转移]操作，切换成功后，就会通过发布订阅模式，让各个哨兵把自己监控的从服务器实现切换主机，这个过程称为**客观下线**。
 
-#### 测试
+#### **实现原理**
 
-##### 1. 配置哨兵配置文件 sentinel.conf
+##### 三个定时监控任务
+
+1. 每隔10秒，每个Sentinel节点会向主节点和从节点发送info命令获取Redis数据节点的信息。
+
+   <img src="redis.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70.png" alt="å¨è¿éæå¥å¾çæè¿°" style="zoom:50%;" />
+
+
+
+**作用**：
+
+- 通过向主节点执行info命令，获取从节点的信息，这也是为什么Sentinel节点不需要显式配置监控从节点。
+- 当有新的从节点加入时都可以立刻感知出来。
+- 节点不可达或者故障转移后，可以通过info命令实时更新节点拓扑信息。
+
+**分析**
+　　Sentinel以每10秒一次的频率向master发送info命令，通过info的回复来分析master信息，master的回复主要包含了两部分信息，一部分是master自身的信息，一部分是master所有的slave（从）的信息，所以sentinel可以自动发现master的从服务。sentinel从master哪儿获取到的master自身信息以及master所有的从信息，将会更新到sentinel的sentinelState中及masters（sentinelRedisInstance结构）中的slaves字典中
+
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325174946582.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+2. 每隔2秒，每个Sentinel节点会向Redis数据节点的__sentinel__：hello频道上发送该Sentinel节点对于主节点的判断以及当前Sentinel节点的信息，同时每个Sentinel节点也会订阅该频道，来了解其他Sentinel节点以及它们对主节点的判断.
+
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325175139145.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+**消息格式：**
+
+<Sentinel节点IP> <Sentinel节点端口> <Sentinel节点runId> <Sentinel节点配置纪元>
+<主节点名字> <主节点Ip> <主节点端口> <主节点配置纪元>
+各个参数的解析如下
+
+```conf
+s_ip: sentine的IP
+
+s_port: sentinel的端口
+
+s_runid: sentinel运行ID
+
+s_epoch: sentinel当期的配置纪元
+
+m_name: 主服务器名字
+
+m_ip: 主服务器IP
+
+m_port: 主服务器端口
+
+m_epoch: 主服务器纪元
+```
+
+作用：
+
+发现新的Sentinel节点：通过订阅主节点的__sentinel__：hello了解其他的Sentinel节点信息，如果是新加入的Sentinel节点，将该Sentinel节点信息保存起来（如下图：sentinelRedisInstance），并与该Sentinel节点创建连接。
+Sentinel节点之间交换主节点的状态，作为后面客观下线以及领导者选举的依据。
+
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325180946675.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+3. 每隔1秒，每个Sentinel节点会向主节点、从节点、其余Sentinel节点发送一条ping命令做一次心跳检测，来确认这些节点当前是否可达
+
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325175701749.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+##### 主观下线和客观下线
+
+**主观下线**：
+　　所谓主观下线，就是单个sentinel认为某个服务下线（有可能是接收不到订阅，之间的网络不通等等原因）。
+　　sentinel会以每秒一次的频率向所有与其建立了命令连接的实例（master，从服务，其他sentinel）发ping命令，通过判断ping回复是有效回复，还是无效回复来判断实例时候在线（对该sentinel来说是“主观在线”）
+　　 sentinel配置文件中的down-after-milliseconds设置了判断主观下线的时间长度，如果实例在down-after-milliseconds毫秒内，返回的都是无效回复，那么sentinel会认为该实例已（主观）下线，修改其flags状态为SRI_S_DOWN。在实际的工作当中，多个sentinel配置的down-after-milliseconds　超时时间推荐一致。
+
+**客观下线**：
+　　客观下线 只针对 主节点，从节点和哨兵节点不需要这一步
+　　当Sentinel主观下线的节点是主节点时，该Sentinel节点会通过sentinel ismaster-down-by-addr命令向其他Sentinel节点询问对主节点的判断，当超过配置中的< quorum >个数，Sentinel节点认为主节点确实有问题，这时该Sentinel节点会做出客观下线的决定，并后续对其做故障转移操作。
+　　如果每个Sentinel　配置的down-after-milliseconds时间不一致，会很难超过< quorum >配置的个数
+　　sentinel is-master-down-by-addr < ip > < por t> < current_epoch > < runid >
+例如：sentinel is-master-down-by-addr 127.0.0.1 6379 0 *
+
+ip：主节点IP。
+port：主节点端口。
+current_epoch：当前配置纪元。
+runid：此参数有两种类型，当runid等于“*”时，作用是Sentinel节点直接交换对主节点下线的判定。在领导者Sentinel节点选举时，runid等于当前Sentinel节点的runid，作用是当前Sentinel节点希望目标Sentinel节点同意自己成为领导者的请求。
+一个sentinel接收另一个sentinel发来的is-master-down-by-addr后，提取参数，根据ip和端口，检测该服务时候在该sentinel主观下线，并且回复is-master-down-by-addr
+
+down_state：目标Sentinel节点对于主节点的下线判断，1是下线，0是在线。
+leader_runid：当leader_runid等于“*”时，代表返回结果是用来做主节点是否不可达，当leader_runid等于具体的runid，代表目标节点同意runid成为领导者。
+leader_epoch：领导者纪元。
+
+##### 领导者Sentinel节点选举
+
+Redis使用了Raft算法实现领导者选举，大体思路：
+
+1. 每个在线的Sentinel节点都有资格成为领导者，每个Sentinel节点发现当它确认主节点客观下线检查时候，会向其他Sentinel节点发送sentinel is-master-down-by-addr命令，要求将自己设置为领导者。
+2. 每个节点在每个选举轮次中只有一次投票权，收到命令的Sentinel节点，如果没有同意过其他Sentinel节点的sentinelis-master-down-by-addr命令，将同意该请求，否则拒绝。
+3. 如果该Sentinel节点发现自己的票数已经大于等于max（quorum，num（sentinels）/2+1），那么它将成为领导者。其他的投票就会终止，即使后续还有其他的哨兵节点到达配置，也没有作用
+4. 如果此过程没有选举出领导者， 暂定一段时间，再进行下一轮选举，current_epoch加1。
+
+**图例：**
+
+s1(哨兵节点)节点首先完成客观下线的检查，然后向s2和s3发送成为领导者的请求：
+
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325183954662.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+
+
+##### s2节点完成客观下线的检查，然后向s1和s3发送成为领导者的请求：
+
+#####  ![å¨è¿éæå¥å¾çæè¿°](redis.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70.png)
+
+s３节点完成客观下线的检查，然后向s１和s２发送成为领导者的请求：
+
+![å¨è¿éæå¥å¾çæè¿°](redis.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70.png)
+
+##### 故障转移
+
+故障转移分为四个主要步骤:
+
+a、 在从节点列表中选出一个作为新的主节点
+
+[1] 　过滤：“不健康”（主观下线、断线）、5秒内没有回复过Sentinel节点ping响应、与主节点失联超过down-after-milliseconds*10秒。（断线时间越长主从数据不一致问题越严重）
+
+[2] 　选择slave-priority（从节点优先级）最高的从节点列表，如果存在则返回，不存在则继续。
+
+[3] 　如果优先级一样，选择复制偏移量最大的从节点（复制的最完整，尽可能的减少数据丢失），如果存在则返回，不存在则继续。
+
+[4] 　如果偏移量一样，选择runid最小的从节点。
+
+挑选从节点的重要原则：在从从节点列表中挑选与主节点数据最一致的节点。
+![å¨è¿éæå¥å¾çæè¿°](https://img-blog.csdnimg.cn/20200325185753404.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dvbWVueWlxaWxhbGFsYQ==,size_16,color_FFFFFF,t_70)
+
+b、 Sentinel领导者节点会对第一步选出来的从节点执行slaveof no one命令让其成为主节点。
+
+c、 Sentinel领导者节点会向剩余的从节点发送命令，让它们成为新主节点的从节点，复制规则和parallel-syncs参数有关。slaveof ip port
+
+d、 Sentinel节点集合会将原来的主节点更新为从节点，并保持着对其关注，当其恢复后命令它去复制新的主节点。
+
+
+##### 配置哨兵配置文件 sentinel.conf
 
 ```bash
 # sentinel monitor 被监控的名称 host port 1
@@ -351,4 +487,28 @@ appendsync everysec # 每秒执行一次，sync,可能会丢失这1s的数据
 always # 每次修改都会 sync
 no # 不同步
 ```
+
+### redis 问题
+
+#### 1. redis哨兵模式之脑裂现象？
+
+1.什么是脑裂？
+
+所谓脑裂问题(类似于精神分裂)，就是同一个集群中的不同节点，对于集群的状态有了不一样的理解。
+
+2.哨兵模式造成的redis脑裂现象原因？
+
+举例(1主1从2哨兵的情况),由于网络原因或者一些特殊原因，哨兵失去了对master节点器的感知，将会通过选举进行故障转移，将slave节点提升为master节点，这就导致了当前集群中有2个master，这就是脑裂现象的体现。不同的 client 链接到不同的 redis 进行读写，那么在两台机器上的 redis 数据，就出现了不一致的现象了。当哨兵恢复对老master节点的感知后，会将其降级为slave节点，然后从新maste同步数据(full resynchronization)，导致脑裂期间老master写入的数据丢失，完犊子了。
+
+3.解决方案
+
+redis.conf 修改属性，通过活跃slave节点数和数据同步延迟时间来限制master节点的写入操作。
+
+\# master 至少有 x 个副本连接。
+
+min-slaves-to-write x
+
+\# 数据复制和同步的延迟不能超过 x 秒。
+
+min-slaves-max-lag x
 
