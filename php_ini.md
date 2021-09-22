@@ -9,7 +9,7 @@ memory_limit
 # 获取内存的内存使用量函数
 memory_get_peak_usage()
 
-# 设置单个 PHP 进程在终止之前最长可运行时间 default:30s;建议为5s , 在 PHP 脚本中可以调用 set_limit_time()函数覆盖这个设置
+# 设置单个 PHP 进程在终止之前最长可运行时间 default:30s; 在 PHP 脚本中可以调用 set_limit_time()函数覆盖这个设置
 max_execution_time
 
 # 除了提示外包含所有的错误默认值是 E_ALL & ~ E_notice。设置错误报告的级别。该参数可以是一个任意的表示二进制位字段的整数，或者常数名称;在程序运行时，还可以通过 error_reporting() 函数进行设置
@@ -130,7 +130,7 @@ listen.backlog = -1
 # 允许访问FastCGI进程的IP，设置any为不限制IP，如果要设置其他主机的nginx也能访问这台FPM进程，listen处要设置成本地可被访问的IP。默认值是any。每个地址是用逗号分隔. 如果没有设置或者为空，则允许任何服务器请求连接
 listen.allowed_clients = 127.0.0.1
 
-# 启动进程的帐户和组
+# 启动进程的用户和组
 user = www
 group = www 
 
