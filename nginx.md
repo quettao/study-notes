@@ -194,7 +194,7 @@ gzip_http_version 1.1;
 gzip_comp_level 2; 
 
 # 用来指定压缩的类型，“text/html”类型总是会被压缩，这个就是HTTP原理部分讲的媒体类型。
-gzip_typestext/plain application/x-javascript text/css application/xml; 
+gzip_types text/plain application/x-javascript text/css application/xml; 
 
 # vary header支持。该选项可以让前端的缓存服务器缓存经过GZIP压缩的页面，例如用Squid缓存经过Nginx压缩的数据。
 gzip_vary on; 

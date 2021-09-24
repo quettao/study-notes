@@ -174,9 +174,9 @@ db.collection.insertMany(
 	 )
 	 # 参数说明：
 	 	# query : update的查询条件，类似sql update查询内where后面的。
-	 	# update : update的对象和一些更新的操作符（如$,$inc...）等，也可以理解为sql update查询内set后			面的
-	 	# upsert : 可选，这个参数的意思是，如果不存在update的记录，是否插入objNew,true为插入，默认是				false，不插入。
-	 	# multi : 可选，mongodb 默认是false,只更新找到的第一条记录，如果这个参数为true,就把按条件查出来			多条记录全部更新。
+	 	# update : update的对象和一些更新的操作符（如$,$inc...）等，也可以理解为sql update查询内set后面的
+	 	# upsert : 可选，这个参数的意思是，如果不存在update的记录，是否插入objNew,true为插入，默认是alse，不插入。
+	 	# multi : 可选，mongodb 默认是false,只更新找到的第一条记录，如果这个参数为true,就把按条件查出来多条记录全部更新。
 	 	# writeConcern :可选，抛出异常的级别。
 	 	
 	# 如果你要修改多条相同的文档，则需要设置 multi 参数为 true。
@@ -357,7 +357,7 @@ db.col.dropIndex("索引名称")
 
 聚合(aggregate)主要用于处理数据(诸如统计平均值，求和等)，并返回计算后的数据结果。有点类似 SQL 语句中的 **count(\*)**。
 
-MongoDB中聚合的方法使用$\textcolor{Red}{aggregate()} $。
+MongoDB中聚合的方法使用$\textcolor{Green}{aggregate()} $。
 
 ```SQL
 # aggregate() 方法的基本语法格式如下所示

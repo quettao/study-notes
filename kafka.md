@@ -24,7 +24,7 @@
 #输入以下内容：
   #broker 的全局唯一编号，不能重复
   broker.id=0
-  #删除 topic 功能使能
+  #删除 topic 功能使用
   delete.topic.enable=true
   #处理网络请求的线程数量
   num.network.threads=3
@@ -35,7 +35,8 @@
   #接收套接字的缓冲区大小
   socket.receive.buffer.bytes=102400
   #请求套接字的缓冲区大小
-  socket.request.max.bytes=104857600 #kafka 运行日志存放的路径
+  socket.request.max.bytes=104857600 
+  #kafka 运行日志存放的路径
   log.dirs=/opt/module/kafka/logs
   #topic 在当前 broker 上的分区个数
   num.partitions=1
