@@ -57,6 +57,13 @@ show status like 'table%';
 #   table: 使用的表
 
 #   type: 访问类型；排序：system > const > eq_ref > ref > range > index > ALL
+# system : const的特例，仅返回一条数据的时候。
+# const : 查找主键索引，返回的数据至多一条（0或者1条）。 属于精确查找
+# eq_ref : 查找唯一性索引，返回的数据至多一条。属于精确查找
+# ref : 查找非唯一性索引，返回匹配某一条件的多条数据。属于精确查找、数据返回可能是多条
+# range : 查找某个索引的部分索引，一般在where子句中使用 < 、>、in、between等关键词。只检索给定范围的行，属于范围查找
+# index : 查找所有的索引树，比ALL要快的多，因为索引文件要比数据文件小的多。
+# All : 不使用任何索引，进行全表扫描，性能最差。
 
 #   possible_keys: 理论上可能使用的key
 
@@ -185,7 +192,33 @@ delete from tonbby where id = 01;
 
 ​	用户，权限，事务。
 
+#### MVCC
 
+全称：Multi-Version Concurrency Control,即多版本并发控制，主要是为了提高数据库的并发性能。
+
+快照读：select 查询
+
+当前读：insert 、 update、 delete时需要先把数据读取出来，再进行其他操作，需要加锁。
+
+undo log:
+
+版本链：
+
+![image-20210918162407425](mysql.assets/image-20210918162407425.png)
+
+redaview :
+
+![image-20210918162441718](mysql.assets/image-20210918162441718.png)
+
+##### readview如何判断版本链中的哪个版本可用？
+
+==trx_id == creator_trx_id: 可以访问这个版本==
+
+==trx_id < min_trx_id: 可以访问这个版本==
+
+==trx_id > max_trx_id: 不可以访问这个版本==
+
+==min_trx_id <= trx_id <= max_trx_id: 如果trx_id 在 m_ids 中是不可以访问这个版本的，反之可以==
 
 #### 问题
 
