@@ -203,6 +203,81 @@ class connect {
       $config['option'] = ['connect' => true];
     } 
 	}
+  
+  /**
+	 * MYSQL连接
+	 * @return obj
+	 */
+ 	public function db_connect(){
+ 		$conn = ($config['pconnect'] == 0) ? mysql_connect($this->localhost, $this->dbuser, $this->password, true) 
+      																 : mysql_pconnect($this->localhost, $this->dbuser, $this->password);
+	    if(!$conn){  
+	       die('Could not connect: ' . mysql_error());  
+	    }
+	    mysql_query('SET NAMES ' . $this->database, $conn);  //设置数据库字符集
+	    $dbname=@mysql_select_db($this->database, $conn);  
+	    if(!$dbname){  
+	        die ("Can\'t use test_db : " . mysql_error());  
+	    }  
+	    return $conn;  
+ 	}
+  
+  /**
+ 	 * NoSql mongoDB链接
+ 	 */
+ 	public function mongodb(){	
+ 		$server = 'mongodb://' . $this->localhost . ':' . $this->port;
+ 		//链接mongodb 数据库
+ 		$this->mongo = new Mongo($server, $this->options);
+ 		//选择数据库
+		$this->db = $this->mongo->selectDB($this->database);
+		//用户名 密码
+		$this->db->authenticate($this->dbuser, $this->password);
+		//$mongo->connect();  //调用connect方法，来保持连接。  
+		//$mongo->close();  //调用close方法，关闭数据库连接。  
+		//$alldb= $this->mongo->listDBs(); //调用listDBs方法，返回$alldb这个多维数组。显示所有的数据库。 
+ 	}
 }
+
+/**
+  * 建造者模式类  目的是处理数据库链接对象的复杂构建的对象设计
+  * 这只是一个简单说明类，如需分装一个完整的正式环境下用的数据库多种类型链接类，请稍微加以修改即可用。
+  * 当然此类你也可以直接拿去用，只是感觉不完美。
+  */
+class mySqlDb {
+  protected $obj;
+  protected $sqltype;
+  public function __construct($config) {
+    $this->obj = new connect($config);
+    $htis->sqltype = $config['sqltype'];
+  }
+  
+  public function buildDb() {
+    if ($this->sqltype == 'mysql') {
+      $this->obj->db_connect();
+    } else {
+      $this->obj->mongodb();
+    }
+  }
+}
+
+/* 创建过程被封装了，方便切换使用mysql 或 mongo数据库链接 
+ */  
+$config = array( 
+	'sqltype'=>'mysql', 
+    'localhost' => '127.0.0.1',  
+    'dbuser' => 'root',  
+    'password' => '123456' ,
+    'database'=>'weike',
+    );  
+ $sql=new MysqlDb($config);
+ $sql->buildDb();
+ 
+ // 用sql查询测试 
+ $sql='select * from pre_brand';
+ $result =mysql_query($sql);
+ $row=mysql_fetch_array($result);
+  print_r($row);
+  mysql_free_result($result);//释放与之关联的资源 （脚本执行完毕后会自动释放内存）
 ```
 
