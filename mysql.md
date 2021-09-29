@@ -220,6 +220,94 @@ redaview :
 
 ==min_trx_id <= trx_id <= max_trx_id: 如果trx_id 在 m_ids 中是不可以访问这个版本的，反之可以==
 
+#### mysql 线程池
+
+###### thread pool 原理分析
+
+大连接问题
+
+​	现有mysql 处理客户端连接的方式会触发mysql 新建一个线程来处理新的连接，新建的线程会处理该连接所发送的所有 SQL 请求，即 one-thread-per-connection 的方式。
+
+优点及存在的问题
+
+​	在连接数较小的情况下可以很快的响应客户端的请求，但当连接数非常大时会创建很多线程，这样会引起以下问题：
+
+​		1.过多线程之间的切换会加重系统的负载，造成系统资源紧张且响应不及时；
+
+  	 2.频繁的进行线程的创建及销毁以及线程间同时无序的竟争系统资源加重了系统的负载。
+
+thread_pool正是为了解决以上问题而产生的；
+
+什么是thread_pool？
+
+​	thread_pool(线程池)，是指mysql 创建若干工作线程来共同处理所有连接的用户请求，用户的请求的方式不再是 ‘one thread per connection’，而是多个线程共同接收并处理多个连接的请求，在数据库的底层处理方面(mysql_execute_command)，单线程的处理方式和线程池的处理方式是一致的。
+
+thread_pool 的工作原理
+
+​	启动 thread_pool 的mysql 会创建thread_pool_size 个thread group , 一个timer thread, 每个thread group 最多拥有thread_pool_oversubscribe个活动线程，一个listener线程，listener线程负责监听分配到thread group中的连接，并将监听到的事件放入到一个queue中，worker线程从queue中取出连接的事件并执行具体的操作，执行的过程和one thread per connection 相同。timer threaad 则是为了监听各个threadgroup的运行情况，并根据是否阴塞来创建新的worker线程。
+
+thread_pool 建立连接的堆栈如下：
+
+```bash
+mysqld_main
+handle_connections_sockets
+create_new_thread
+tp_add_connection
+queue_put
+thread group中的 worker 处理请求的堆栈如下：
+
+0 mysql_execute_command
+1 0x0000000000936f40 in mysql_parse
+2 0x0000000000920664 in dispatch_command
+3 0x000000000091e951 in do_command
+4 0x0000000000a78533 in threadpool_process_request
+5 0x000000000066a10b in handle_event
+6 0x000000000066a436 in worker_main
+7 0x0000003562e07851 in start_thread ()
+8 0x0000003562ae767d in clone ()
+```
+
+其中worker_main函数是woker线程的主函数，调用mysql本身的do_command 进行消息解析及处理，和one_thread_per_connection 是一样的逻辑； thread_pool 自行控制工作的线程个数，进而实现线程的管理。
+
+thread_pool中线程的创建：
+
+1. listener线程将监听事件放入mysql放入queue中时，如果发现当前thread group中的活跃线程数active_thread_count为零，则创建新的worker 线程；
+2. 正在执行的线程阻塞时，如果发现当前thread group中的活跃线程数active_thread_count为零，则创建新的worker 线程；
+3. timer线程在检测时发现没有listener线程且自上次检测以来没有新的请求时会创建新的worker线程，其中检测的时间受参数threadpool_stall_limit控制；
+4. timer线程在检测时发现没有执行过新的请求且执行队列queue 不为空时会创建新的worker线程；
+
+worker线程的伪码如下：
+
+```shell
+worker_main
+{
+while(connection)
+{
+connection= get_event();
+/* get_event函数用于从该线程所属thread_Group中取得事件，然后交给Handle_event函数处理，在同一Group内部，只有thread_pool_oversubscribe个线程能同时工作，多余的线程会进入sleep状态  */
+if(connection)
+handle_event(connection);
+/* 如果是没有登录过的请求，则进行授权检查，并将其Socket绑定到thread_group中的pollfd中，并设置Connection到event中的指针上；对于登录过的，直接处理请求 */
+}
+// 线程销毁
+}
+```
+
+thread_pool中线程的销毁：
+
+​	当从队列queue中取出的connection为空时，则此线程销毁，取connection所等待的时间受参数thread_pool_idle_timeout的控制； 综上，thread_pool通过线程的创建及销毁来自动处理worker的线程个数，在负载较高时，创建的线程数目较高，负载较低时，会销毁多余的worker线程，从而降低连接个数带来的影响的同时，提升稳定性及性能。同时，threadpool中引入了Timer 线程，主要做两个事情。
+
+1. 定期检查每个thread_group是否阻塞，如果阻塞，则进行唤醒或创建线程的工作；
+2. 检查每个thread_group中的连接是否超时，如果超时则关掉连接并释放相应的资源；
+
+threadpool在使用中存在的问题：
+
+1. 由于threadpool严格控制活跃线程数的限制，如果同时有多个大查询同时分配到了同一个thread group，则会造成此group中的请求过慢，rt 升高，最典型的就是多个binlog dump 线程同时分配到了同一个group内；
+2. 开启了事务模式时，非事务模式的请求会放入低优先级队列，因此可能在较长时间内得不到有效处理，极端情况下，会导致实例hang 住，例如某个连接执行了 flush tables with read lock ,并且此连接的后续请求都会放入低优先级，那么有可能会造成实列hang住；
+3. 较小并发下，threadpool 性能退化的问题；
+
+
+
 #### 问题
 
 ##### 1. length()和char_length()的区别和用法？
@@ -1073,6 +1161,143 @@ select * from table where … for update;
 #   Innodb_row_lock_time 等待总时长
 ```
 
+###### 并发Replace into导致的死锁分析
+
+**测试表：**
+
+```mysql
+create table t1 (a int auto_increment primary key, b int, c int, unique key (b));并发执行SQL：
+replace into t1(b,c) values (2,3)  //使用脚本，超过3个会话
+```
+
+**背景**
+
+Replace into操作可以算是比较常用的操作类型之一，当我们不确定即将插入的记录是否存在唯一性冲突时，可以通过Replace into的方式让MySQL自动处理：当存在冲突时，会把旧记录替换成新的记录。
+
+我们先来理一下一条简单的replace into操作（如上例所示）的主要流程包括哪些。
+
+**Step 1. 正常的插入逻辑**
+
+首先插入聚集索引记录，在上例中a列为自增列，由于未显式指定自增值，每次Insert前都会生成一个不冲突的新值。
+
+随后插入二级索引b，由于其是唯一索引，在检查duplicate key时，为其加上类型为LOCK_X的记录锁。
+
+Tips：对于普通的INSERT操作，当需要检查duplicate key时，加LOCK_S锁，而对于Replace into 或者 INSERT..ON DUPLICATE操作，则加LOCK_X记录锁。
+
+当UK记录已经存在时，返回错误DB_DUPLICATE_KEY。
+
+**Step 2. 处理错误**
+
+由于检测到duplicate key，因此第一步插入的聚集索引记录需要被回滚掉（row_undo_ins）。
+
+**Step 3. 转换操作**
+
+从InnoDB层失败返回到Server层后，收到duplicate key错误，首先检索唯一键冲突的索引，并对冲突的索引记录（及聚集索引记录）加锁。
+
+随后确认转换模式以解决冲突：
+
+- 如果发生uk冲突的索引是最后一个唯一索引、没有外键引用、且不存在delete trigger时，使用UPDATE ROW的方式来解决冲突；
+- 否则，使用DELETE ROW + INSERT ROW的方式解决冲突。
+
+**Step 4. 更新记录**
+
+对于聚集索引，由于PK列发生变化，采用delete + insert 聚集索引记录的方式更新。
+
+对于二级uk索引，同样采用标记删除 + 插入的方式。
+
+我们知道，在尝试插入一条记录时，如果插入位置的下一条记录上存在记录锁，那么在插入时，当前session需要对其加插入意向锁，具体类型为LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION。这也是导致死锁的关键点之一。
+
+**是否能保证自增列的有序性?**
+
+默认情况下，参数innodb_autoinc_lock_mode的值为1，因此只在分配自增列时互斥（如果我们将其设为0的话，就会产生AUTO_INC类型的表级锁）。当分配完自增列值后，我们并不知道并发的replace into的顺序。
+
+**死锁分析**
+
+回到死锁线程分析，从死锁日志我们大致可以推断出如下序列（本例中死锁的heap no为5）：
+
+- Session 1 执行到Step4, 准备更新二级Uk索引，因此持有uk上heap no 为5的X 行锁和PK上的X行锁；
+- Session 2 检查到uk冲突，需要加X行锁；
+- Session 1 在标记删除记录后，尝试插入新的uk记录，发现预插入点的下一条记录(heap no =5) 上有锁请求，因此尝试加插入意向X锁，产生锁升级， 死锁路径：Session1 => Session 2 => Session1。
+
+到这里其实问题已经很明显了，我们考虑如下场景：假设当前表内数据为：
+
+```mysql
+root@sb1 08:57:41&gt;select * from t1;
+	+---------+------+------+
+	| a | b | c |
+	+---------+------+------+
+	| 2100612 | 2 | 3 |
+	+---------+------+------+
+	1 row in set (0.00 sec)
+```
+
+由于不能保证自增列被更新的有序性，我们假定有三个并发的会话，并假定表上只有一条记录。
+
+session 1获得自增列值为2100619， session 2 获得的自增列值为2100614， session 3获得的自增列值为2100616。
+
+Session 1: replace into t1 values (2100619, 2, 3); // uk索引上记录(2, 2100612)被标记删除，同时插入新记录(2, 2100619)
+
+- Purge线程启动，(2, 2100612)被物理删除，Page上只剩下唯一的物理记录(2, 2100619)。
+
+Session 2: replace into t1 values (2100614, 2, 3);
+
+这里我们使用gdb的non-stop模式，使其断在row_update_for_mysql函数(insert尝试失败后，会转换成update)，此时session2持有(2, 2100619) 的X锁。
+
+```mysql
+Tips：我们可以通过如下命令使用gdb的non-stop模式：
+	1\. 以gdb启动mysqld
+	2\. 设置： 
+	    set target-async 1 
+			    set pagination off 
+					    set non-stop on
+							3\. 设置函数断点，然后run
+```
+
+Session 3: replace into t1 values (2100616, 2, 3); // 检测到uk有冲突键，需要获取记录(2, 2100619) 的X锁，等待session 2。
+
+Session 2:
+
+- a)标记删除记录(2, 2100619)，同时插入新记录(2, 2100614)；
+- b) (2, 2100614) 比(2, 2100619) 要小，因此定位到该记录之前，也就是系统记录infimum；
+- c)infimum记录的下一条记录(2, 2100619)上有锁等待，需要升级成插入意向X锁，导致死锁发生。
+
+**如果Purge线程一直停止，会发生什么呢 ？**
+
+我们随便建一个表，然后执行FLUSH TABLE tbname FOR EXPORT来让purge线程停止。
+
+假设当前表上数据为：
+
+```mysql
+root@sb1 10:26:05&gt;select * from t1;
+	+---------+------+------+
+	| a | b | c |
+	+---------+------+------+
+	| 2100710 | 2 | 3 |
+	+---------+------+------+
+	1 row in set (0.00 sec)
+
+```
+
+Session 1：replace into t1 values (2100720, 2, 3);
+
+此时Page上存在记录(infimum), (2, 2100710), (2, 2100720), (supremum)。
+
+Session 2：replace into t1 values (2100715, 2, 3);
+
+同上例，使用gdb断到函数row_update_for_mysql。由于没有启动purge线程，因此老的被标记删除的记录还存在于page内，在扫描二级索引重复键时，也会依次给这些老记录加锁，因此session 2会持有 (2, 2100710)和 (2, 2100720)的X锁。
+
+Session 3：replace into t1 values (2100718, 2, 3); // 被session2阻塞，等待(2,2100710)的X锁
+
+Session 2：在标记删除二级索引记录，并进行插入时，选择的插入位置为 (2, 2100710), (2,2100720)之间，插入点的下一条记录(2,2100720)上没有其他线程锁等待，当前session锁升级成功；
+
+完成插入后，page上的记录分布为(infimum), (2, 2100710), (2, 2100715), (2, 2100720), (supremum)。
+
+Session 3：完成插入，最终page内的记录为(infimum), (2, 2100710), (2, 2100715), (2, 2100718), (2, 2100720), (supremum)。其中只有用户记录(2, 2100718)未被标记删除。
+
+**如何解决**？
+
+   鉴于该业务表只有一个主键字段和一个唯一索引字段，在该情况下，我们可以使用==insert into ... on duplicate key update==的方法去代替replace的方法。
+
 ##### 30. mysql 常用的水平分片策略有？
 
  取余/取模: 优点 均匀存放数据， 缺点： 扩容非常麻烦
@@ -1179,3 +1404,238 @@ MySQL的主从复制中主要有三个线程：master(binlog dump thread), slave
 
  半同步复制
  从库写入日志成功后返回ack确认给从库，主库收到至少一个从库的确认就认为写操作完成。
+
+##### 38.MySQL · 系统限制 · text字段数
+
+**背景**
+
+当用户从oracle迁移到MySQL时，可能由于原表字段太多建表不成功，这里讨论一个问题：一个InnoDB表最多能建多少个text字段。
+
+我们后续的讨论基于创建表的语句形如：create table t(f1 text, f2 text, …, fN text)engine=innodb;
+
+**默认配置**
+
+​	在默认配置下，上面的建表语句，N取值范围为[1, 1017]。 为什么是1017这个“奇怪”的数字。实际上单表的最大列数目是1024-1，但是由于InnoDB会增加三个系统内部字段（主键ID、事务ID、回滚指针），因此需要减3。而用于记录系统字典表也受1023的限制，又需要再增加三个该表的系统字段，因此每个表的最大字段数是1023-3*2。
+
+**插入异常**
+
+​	上述描述说明的是表能够创建成功的最大字段数。但是这样的表是“插入不安全”的。我们知道text的长度上限是64k。而往上表中插入一行，每个字段长度为7，就会报错：Row size too large (> 8126).
+
+　　一个page是16k，空page扣掉页信息占用空间是16252，需要除以2，原因是每个page至少要包含两个记录。
+
+　　也就是说，虽然可以创建一个包含1017个text字段的表，但是很容易碰到插入失败。
+
+**如何保证插入安全**
+
+上面的表结构，在保证插入安全的情况下，N的最大值是多少？text在存储的时候，当超过768字节的时候，剩余部分会保存在另外的页面（off-page），因此每个字段占用的最大空间为768+20+2=788. 20字节存储最短剩余部分的位置（SPACEID+PAGEID+OFFSET）。2字节存储本地实际长度。
+
+　　因此N最大值为lower(8126/790)=10。
+
+　　如果我们想在创建的表的时候，保证创建的表中的text字段都能安全的达到64k上限（而不是等插入的时候才发现），那么需要将默认为OFF的innodb_strict_mode设置为ON，这样在建表时会先做判断。
+
+　　但是，在设置为严格模式后，上述建表语句的最大N却并非10.
+
+ROW_FORMAT
+
+　　在off-page存储时，本地占用790个字节，是基于默认的ROW_FORMAT，即为COMPACT，此时插入安全的N上限为10。
+
+　　而在InnoDB新格式Barracuda支持下，Dynamic格式的off-page存储时，在local保存的上限不再是768，而是20个字节。这样每个字段在数据页里面占用的最大值是40byte，再需要一个额外的字节存储实际的本地长度，因此每个text最大占用41字节。
+
+　　实际上很容易测试在严格模式下，建表的最大N为196. 以下为N=197时计算过程：
+
+　　每行记录预留header 5个字节。
+
+　　每个bit保存是否允许null，需要 upper(197/8)=25个字节。
+
+　　三个系统保留字段 6+6+7=19.
+
+　　因此总占用空间 5+25+19+41*197=8126！
+
+　　也就是说，当N=197时，刚好长度为8126，而代码中实现是 if(rec_max_size >= page_rec_max) reutrn(error).
+
+　　就这么不巧！
+
+**作为补充**
+
+　　有经验的读者可以联想到，如果我们的表中自己定义一个int型主键呢？此时系统不需要额外增加主键，因此整个表结构比之前少2字节。
+
+　　也就是说，建表语句修改为: create table t(id int primary key, f1 text, f2 text, …, fN text)engine=innodb;
+
+　　则此时的N上限能达到197。
+
+### mysql  conf 参数
+
+##### 1. innodb_flush_log_at_trx_commit
+
+这个参数可以说是InnoDB里面最重要的参数之一，它控制了重做日志（redo log）的写盘和落盘策略。
+
+###### **innodb_use_global_flush_log_at_trx_commit**
+
+​	直到2010年的某一天，Percona的CTO Vadim同学觉得这种一刀切的风格不够灵活，最好把这个变量设置成session级别，每个session自己控制。
+
+​	但同时为了保持Super权限对提交行为的控制，同时增加了innodb_use_global_flush_log_at_trx_commit参数。 这两个参数的配合逻辑为：
+
+​		1、若 ==innodb_use_global_flush_log_at_trx_commit== 为 ==OFF==，则使用 ==session.innodb_flush_log_at_trx_commi==;
+
+​		2、若 ==innodb_use_global_flush_log_at_trx_commit== 为 ==ON==,则使用 ==global .innodb_flush_log_at_trx_commit==（此时session中仍能设置，但无效）
+
+​		3、每个session新建时，以当前的 ==global.innodb_flush_log_at_trx_commit== 为默认值。
+
+###### 业务应用
+
+这个特性可以用在一些对表的重要性做等级定义的场景。比如同一个实例下，某些表数据有外部数据备份，或允许丢失部分事务的情况，对这些表的更新，可以设置 Session.innodb_flush_log_at_trx_commit为非1值。
+
+##### 2. auto_increment
+
+Innodb引擎使用B_tree结构保存表数据，这样就需要一个唯一键表示每一行记录(比如二级索引记录引用)。
+
+Innodb表定义中处理主键的逻辑是：
+
+​	1.如果表定义了主键，就使用主键唯一定位一条记录
+
+​	2.如果没有定义主键，Innodb就生成一个全局唯一的==rowid==来定位一条记录
+
+auto_increment的由来:
+
+​	1.Innodb强烈推荐在设计表中自定义一个主键，因为rowid是全局唯一的，所以如果有很多表没有定义主键，就会在生成rowid上产生争用。
+
+​	2.当用户自定义了主键后，由于大部分实际应用部署的分布式，所以主键值的生成上，采用集中式的方式，更容易实现唯一性，所以auto_increment非常合适。
+
+auto_increment也带来两个好处：
+
+	1. auto_increment的值是表级别的，不会在db级别上产生争用
+
+2. 由于auto_increment的顺序性，减少了随机读的可能，保证了写入的page的缓冲命中。（不可否认，写入的并发足够大时，会产生热点块的争用）
+
+### mysql 错误
+
+### mysql 新能优化
+
+#### Bulk Load for CREATE INDEX
+
+MySQL5.6以后的版本提供了多种优化手段用于create index，比如online方式，Bulk Load方式。
+
+Online提供了非阻塞写入的方式创建索引，为运维提供了很大的便利。 Bulk Load提升了索引创建的效率,减少了阻塞的时间。
+
+**传统方式**
+
+MySQL 5.7.5版本之前，create index使用的是和insert一条记录相同的api接口，即自上而下的插入方式。
+
+​	步骤1: 扫描clustered index，得到行记录。 
+
+​	步骤2: 根据record，按照B-Tree的结构，从root->branch->leaf page查找到属于record的位置。
+
+​	步骤3: 调用write index record接口，维护索引。
+
+
+
+1. 查找: 对每一条记录在插入前从B-Tree上查找到自己的位置。
+2. 排序: 因为是按照B-Tree的结构，所以每一条记录插入都是有序的。
+3. redo: 每条记录的插入都会记录innodb的redo做保护。
+4. undo: 记录每个插入记录位置的undo
+5. page split: 插入采用optimistic的方式，如果失败而发现page full，那么就split page，并向上更新branch page。
+
+从上面的步骤和几个维度的说明上，传统的create index比较简单，但一方面会阻塞写入，另一方面效率会比较低，延长了不可用时间。
+
+
+
+**Bulk Load方式**
+
+Bulk Load方式创建索引，使用==多路归并排序和批量写入==的方法，是一种自下而上的方式。
+
+步骤1: 扫描clustered index，写入sort buffer，等sort buffer写满了后，写入到临时文件中。
+
+步骤2: 对临时文件中的有序记录进行归并排序。 
+
+步骤3: 批量写入到索引结构中。
+
+批量写入: 因为记录都是有序的，所以写入的过程就是，不断的分配leaf page，然后批量写入记录，并保留innodb_fill_factor设置的空闲空间大小，所以，就是不断在最右边leaf page写入，并不断进行平衡B-Tree结构的过程。 
+
+1. 查找: Bulk Load方式并没有单条record查找的过程。
+2. 排序: 使用多路归并排序，对待写入的records进行排序。
+3. redo: Innodb并没有记录redo log，而是做checkpoint直接持久化数据。
+4. undo: 记录了新分配的page。
+5. page split: 因为每次都是初始化一个最右端的page，create index的时候不存在split。
+
+从上面的步骤和几个维度的说明上，Bulk Load方式能显著的利用机器的吞吐量，加快创建index的过程。
+
+#### InnoDB buffer pool flush策略
+
+**背景**
+
+InnoDB使用buffer pool来缓存从磁盘读取到内存的数据页。buffer pool通常由数个内存块加上一组控制结构体对象组成。内存块的个数取决于buffer pool instance的个数，不过在5.7版本中开始默认以128M（可配置）的chunk单位分配内存块，这样做的目的是为了支持buffer pool的在线动态调整大小。
+
+Buffer pool的每个内存块通过mmap的方式分配内存，因此你会发现，在实例启动时虚存很高，而物理内存很低。这些大片的内存块又按照16KB划分为多个frame，用于存储数据页。
+
+虽然大多数情况下buffer pool是以16KB来存储数据页，但有一种例外：使用压缩表时，需要在内存中同时存储压缩页和解压页，对于压缩页，使用Binary buddy allocator算法来分配内存空间。例如我们读入一个8KB的压缩页，就从buffer pool中取一个16KB的block，取其中8KB，剩下的8KB放到空闲链表上；如果紧跟着另外一个4KB的压缩页读入内存，就可以从这8KB中分裂4KB，同时将剩下的4KB放到空闲链表上。
+
+为了管理buffer pool，每个buffer pool instance 使用如下几个链表来管理：
+
+- LRU链表包含所有读入内存的数据页；
+- Flush_list包含被修改过的脏页；
+- unzip_LRU包含所有解压页；
+- Free list上存放当前空闲的block。
+
+另外为了避免查询数据页时扫描LRU，还为每个buffer pool instance维护了一个page hash，通过space id 和page no可以直接找到对应的page。
+
+一般情况下，当我们需要读入一个Page时，首先根据space id 和page no找到对应的buffer pool instance。然后查询page hash，如果page hash中没有，则表示需要从磁盘读取。在读盘前首先我们需要为即将读入内存的数据页分配一个空闲的block。当free list上存在空闲的block时，可以直接从free list上摘取；如果没有，就需要从unzip_lru 或者 lru上驱逐page。
+
+这里需要遵循一定的原则（参考函数buf_LRU_scan_and_free_block , 5.7.5）：
+
+1. 首先尝试从unzip_lru上驱逐解压页；
+2. 如果没有，再尝试从Lru链表上驱逐Page；
+3. 如果还是无法从Lru上获取到空闲block，用户线程就会参与刷脏，尝试做一次SINGLE PAGE FLUSH，单独从Lru上刷掉一个脏页，然后再重试。
+
+Buffer pool中的page被修改后，不是立刻写入磁盘，而是由后台线程定时写入，和大多数数据库系统一样，脏页的写盘遵循日志先行WAL原则，因此在每个block上都记录了一个最近被修改时的Lsn，写数据页时需要确保当前写入日志文件的redo不低于这个Lsn。
+
+然而基于WAL原则的刷脏策略可能带来一个问题：当数据库的写入负载过高时，产生redo log的速度极快，redo log可能很快到达同步checkpoint点。这时候需要进行刷脏来推进Lsn。由于这种行为是由用户线程在检查到redo log空间不够时触发，大量用户线程将可能陷入到这段低效的逻辑中，产生一个明显的性能拐点。
+
+**Page Cleaner线程**
+
+在MySQL5.6中，开启了一个独立的page cleaner线程来进行刷lru list 和flush list。默认每隔一秒运行一次，5.6版本里提供了一大堆的参数来控制page cleaner的flush行为，包括：
+
+```conf
+innodb_adaptive_flushing_lwm， 
+innodb_max_dirty_pages_pct_lwm
+innodb_flushing_avg_loops
+innodb_io_capacity_max
+innodb_lru_scan_depth
+```
+
+总的来说，如果你发现redo log推进的非常快，为了避免用户线程陷入刷脏，可以通过调大innodb_io_capacity_max来解决，该参数限制了每秒刷新的脏页上限，调大该值可以增加Page cleaner线程每秒的工作量。如果你发现你的系统中free list不足，总是需要驱逐脏页来获取空闲的block时，可以适当调大innodb_lru_scan_depth 。该参数表示从每个buffer pool instance的lru上扫描的深度，调大该值有助于多释放些空闲页，避免用户线程去做single page flush。
+
+为了提升扩展性和刷脏效率，在5.7.4版本里引入了多个page cleaner线程，从而达到并行刷脏的效果。目前Page cleaner并未和buffer pool绑定，其模型为一个协调线程 + 多个工作线程，协调线程本身也是工作线程。因此如果innodb_page_cleaners设置为4，那么就是一个协调线程，加3个工作线程，工作方式为生产者-消费者。工作队列长度为buffer pool instance的个数，使用一个全局slot数组表示。
+
+协调线程在决定了需要flush的page数和lsn_limit后，会设置slot数组，将其中每个slot的状态设置为PAGE_CLEANER_STATE_REQUESTED, 并设置目标page数及lsn_limit，然后唤醒工作线程 (pc_request)
+
+工作线程被唤醒后，从slot数组中取一个未被占用的slot，修改其状态，表示已被调度，然后对该slot所对应的buffer pool instance进行操作。直到所有的slot都被消费完后，才进入下一轮。通过这种方式，多个page cleaner线程实现了并发flush buffer pool，从而提升flush dirty page/lru的效率。
+
+**MySQL5.7的InnoDB flush策略优化**
+
+在之前版本中，因为可能同时有多个线程操作buffer pool刷page （在刷脏时会释放buffer pool mutex），每次刷完一个page后需要回溯到链表尾部，使得扫描bp链表的时间复杂度最差为O（N*N）。
+
+在5.6版本中针对Flush list的扫描做了一定的修复，使用一个指针来记录当前正在flush的page，待flush操作完成后，再看一下这个指针有没有被别的线程修改掉，如果被修改了，就回溯到链表尾部，否则无需回溯。但这个修复并不完整，在最差的情况下，时间复杂度依旧不理想。
+
+因此在5.7版本中对这个问题进行了彻底的修复，使用多个名为hazard pointer的指针，在需要扫描LIST时，存储下一个即将扫描的目标page，根据不同的目的分为几类：
+
+- flush_hp: 用作批量刷FLUSH LIST
+- lru_hp: 用作批量刷LRU LIST
+- lru_scan_itr: 用于从LRU链表上驱逐一个可替换的page，总是从上一次扫描结束的位置开始，而不是LRU尾部
+- single_scan_itr: 当buffer pool中没有空闲block时，用户线程会从FLUSH LIST上单独驱逐一个可替换的page 或者 flush一个脏页，总是从上一次扫描结束的位置开始，而不是LRU尾部。
+
+后两类的hp都是由用户线程在尝试获取空闲block时调用，只有在推进到某个buf_page_t::old被设置成true的page (大约从Lru链表尾部起至总长度的八分之三位置的page)时， 再将指针重置到Lru尾部。
+
+这些指针在初始化buffer pool时分配，每个buffer pool instance都拥有自己的hp指针。当某个线程对buffer pool中的page进行操作时，例如需要从LRU中移除Page时，如果当前的page被设置为hp，就要将hp更新为当前Page的前一个page。当完成当前page的flush操作后，直接使用hp中存储的page指针进行下一轮flush。
+
+**社区优化**
+
+一如既往的，Percona Server在5.6版本中针对buffer pool flush做了不少的优化，主要的修改包括如下几点：
+
+- 优化刷LRU流程buf_flush_LRU_tail 该函数由page cleaner线程调用。
+- 原生的逻辑：依次flush 每个buffer pool instance，每次扫描的深度通过参数innodb_lru_scan_depth来配置。而在每个instance内，又分成多个chunk来调用；
+- 修改后的逻辑为：每次flush一个buffer pool的LRU时，只刷一个chunk，然后再下一个instance，刷完所有instnace后，再回到前面再刷一个chunk。简而言之，把集中的flush操作进行了分散，其目的是分散压力，避免对某个instance的集中操作，给予其他线程更多访问buffer pool的机会。
+- 允许设定刷LRU/FLUSH LIST的超时时间，防止flush操作时间过长导致别的线程（例如尝试做single page flush的用户线程）stall住；当到达超时时间时,page cleaner线程退出flush。
+- 避免用户线程参与刷buffer pool 当用户线程参与刷buffer pool时，由于线程数的不可控，将产生严重的竞争开销，例如free list不足时做single page flush，以及在redo空间不足时，做dirty page flush，都会严重影响性能。Percona Server允许选择让page cleaner线程来做这些工作，用户线程只需要等待即可。出于效率考虑，用户还可以设置page cleaner线程的cpu调度优先级。 另外在Page cleaner线程经过优化后，可以知道系统当前处于同步刷新状态，可以去做更激烈的刷脏(furious flush)，用户线程参与到其中，可能只会起到反作用。
+- 允许设置page cleaner线程，purge线程，io线程，master线程的CPU调度优先级，并优先获得InnoDB的mutex。
+- 使用新的独立后台线程来刷buffer pool的LRU链表，将这部分工作负担从page cleaner线程剥离。 实际上就是直接转移刷LRU的代码到独立线程了。从之前Percona的版本来看，都是在不断的强化后台线程，让用户线程少参与到刷脏/checkpoint这类耗时操作中。
+

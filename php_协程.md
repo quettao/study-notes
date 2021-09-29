@@ -192,6 +192,251 @@ class Task
 接下来就是Scheduler这个重点核心部分，他扮演着调度员的角色。
 
 ```php
-https://zhuanlan.zhihu.com/p/94145603
+class Scheduler
+{
+  protected $taskQueue;
+  protected $tid = 0;
+  
+  public function __construct() {
+    // 原理就是维护了一个队列
+    // 从编程角度看，协程的思想本质上就是控制流的主动让出(yield)和恢复(resume)机制
+    $this->taskQueue = new SqlQueue();
+  }
+  
+  /**
+    * 增加一个任务
+    *
+    * @param Generator $task
+    * @return int
+    */
+  public function addTask(Generator $task) {
+    $tid = $this->tid;
+    $task = new Task($tid, $task);
+    $this->taskQueue->enqueue($task);
+    $this->tid++;
+    return $tid;
+  }
+  
+   /**
+    * 把任务进入队列
+    *
+    * @param Task $task
+    */
+ public function schedule(Task $task) {
+  	$this->taskQueue->enqueue($task);
+ }
+  
+   /**
+     * 运行调度器
+     */
+ public function run() {
+    while (!$this->taskQueue->isEmpty()) {
+       // 任务出队
+       $task = $this->taskQueue->dequeue();
+       $res = $task->run(); // 运行任务直到 yield
+
+       if (!$task->isFinished()) {
+        	$this->schedule($task); // 任务如果还没完全执行完毕，入队等下次执行
+       }
+    }
+ }
+}
+```
+
+这样我们基本就实现了一个协程调度器。
+
+使用下面的代码来测试：
+
+```php
+function task1() {
+ for ($i = 1; $i <= 10; ++$i) {
+  echo "This is task 1 iteration $i.\n";
+  yield; // 主动让出CPU的执行权
+ }
+}
+function task2() {
+ for ($i = 1; $i <= 5; ++$i) {
+  echo "This is task 2 iteration $i.\n";
+  yield; // 主动让出CPU的执行权
+ }
+}
+$scheduler = new Scheduler; // 实例化一个调度器
+$scheduler->newTask(task1()); // 添加不同的闭包函数作为任务
+$scheduler->newTask(task2());
+$scheduler->run();
+```
+
+关键说下在哪里能用得到PHP协程。
+
+```php
+function task1() {
+  /* 这里有一个远程任务，需要耗时10s，可能是一个远程机器抓取分析远程网址的任务，我们只要提交最后去远程机器拿结果就行了 */
+  remote_task_commit();
+  // 这时候请求发出后，我们不要在这里等，主动让出CPU的执行权给task2运行，他不依赖这个结果
+  yield;
+  yield (remote_task_receive());
+  ...
+} 
+function task2() {
+ for ($i = 1; $i <= 5; ++$i) {
+  echo "This is task 2 iteration $i.\n";
+  yield; // 主动让出CPU的执行权
+ }
+}
+
+```
+
+###### 3）协程堆栈
+
+如果在函数中使用了yield，就不能当做函数使用。
+
+所以你在一个协程函数中嵌套另外一个协程函数：
+
+```php
+function echoTimes($msg, $max) {
+ for ($i = 1; $i <= $max; ++$i) {
+  echo "$msg iteration $i\n";
+  yield;
+ }
+}
+function task() {
+ echoTimes('foo', 10); // print foo ten times
+ echo "---\n";
+ echoTimes('bar', 5); // print bar five times
+ yield; // force it to be a coroutine
+}
+$scheduler = new Scheduler;
+$scheduler->newTask(task());
+$scheduler->run();
+```
+
+这里的echoTimes是执行不了的！所以就需要协程堆栈。
+
+不过没关系，我们改一改我们刚刚的代码。
+
+把Task中的初始化方法改下，因为我们在运行一个Task的时候，我们要分析出他包含了哪些子协程，然后将子协程用一个堆栈保存。（C语言学的好的同学自然能理解这里，不理解的同学我建议去了解下进程的内存模型是怎么处理函数调用）
+
+```php
+/**
+ * Task constructor.
+ * @param $taskId
+ * @param Generator $coroutine
+ */
+public function __construct($taskId, Generator $coroutine)
+{
+ $this->taskId = $taskId;
+ // $this->coroutine = $coroutine;
+ // 换成这个，实际Task->run的就是stackedCoroutine这个函数，不是$coroutine保存的闭包函数了
+ $this->coroutine = stackedCoroutine($coroutine); 
+}
+```
+
+当Task->run()的时候，一个循环来分析：
+
+```php
+/**
+ * @param Generator $gen
+ */
+function stackedCoroutine(Generator $gen)
+{
+ $stack = new SplStack;
+ // 不断遍历这个传进来的生成器
+ for (; ;) {
+  // $gen可以理解为指向当前运行的协程闭包函数（生成器）
+  $value = $gen->current(); // 获取中断点，也就是yield出来的值
+  if ($value instanceof Generator) {
+   // 如果是也是一个生成器，这就是子协程了，把当前运行的协程入栈保存
+   $stack->push($gen);
+   $gen = $value; // 把子协程函数给gen，继续执行，注意接下来就是执行子协程的流程了
+   continue;
+  }
+  // 我们对子协程返回的结果做了封装，下面讲
+  $isReturnValue = $value instanceof CoroutineReturnValue; // 子协程返回`$value`需要主协程帮忙处理 
+  if (!$gen->valid() || $isReturnValue) {
+   if ($stack->isEmpty()) {
+    return;
+   }
+   // 如果是gen已经执行完毕，或者遇到子协程需要返回值给主协程去处理
+   $gen = $stack->pop(); //出栈，得到之前入栈保存的主协程
+   $gen->send($isReturnValue ? $value->getValue() : NULL); // 调用主协程处理子协程的输出值
+   continue;
+  }
+  $gen->send(yield $gen->key() => $value); // 继续执行子协程
+ }
+}
+```
+
+然后我们增加echoTime的结束标示：
+
+```php
+class CoroutineReturnValue {
+ protected $value;
+
+ public function __construct($value) {
+  $this->value = $value;
+ }
+ // 获取能把子协程的输出值给主协程，作为主协程的send参数
+ public function getValue() {
+  return $this->value;
+ }
+}
+
+function retval($value) {
+ return new CoroutineReturnValue($value);
+}
+```
+
+然后修改echoTimes：
+
+```php
+function echoTimes($msg, $max) {
+ for ($i = 1; $i <= $max; ++$i) {
+  echo "$msg iteration $i\n";
+  yield;
+ }
+ yield retval(""); // 增加这个作为结束标示
+}
+```
+
+Task变为：
+
+```php
+function task1() {
+ yield echoTimes('bar', 5);
+}
+```
+
+###### 4）PHP7中yield from关键字
+
+PHP7中增加了yield from，所以我们不需要自己实现携程堆栈，真实太好了。
+
+把Task的构造函数改回去：
+
+```php
+public function __construct($taskId, Generator $coroutine)
+{
+ $this->taskId = $taskId;
+ $this->coroutine = $coroutine;
+ // $this->coroutine = stackedCoroutine($coroutine); //不需要自己实现了，改回之前的
+}
+```
+
+echoTimes函数：
+
+```php
+function echoTimes($msg, $max) {
+ for ($i = 1; $i <= $max; ++$i) {
+  echo "$msg iteration $i\n";
+  yield;
+ }
+}
+```
+
+task1生成器：
+
+```php
+function task1() {
+ yield from echoTimes('bar', 5);
+}
 ```
 
