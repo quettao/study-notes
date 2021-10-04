@@ -4,7 +4,9 @@
 
 ![image-20210901230411448](kafka.assets/image-20210901230411448.png)
 
-![image-20210901230500084](kafka.assets/image-20210901230500084.png)
+
+
+
 
 #### kafka集群部署？
 
