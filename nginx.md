@@ -221,7 +221,7 @@ server {
   server_name www.oldboyedu.com oldboyedu.com;#域名
   root   html/blog;#站点根目录，即网站程序放的目录
   location / {#默认访问的location标签段
-  index  index.php index.htmlindex.htm;#首页排序
+  index  index.php index.html index.htm;#首页排序
 
 }
   
