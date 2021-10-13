@@ -113,7 +113,7 @@ echo UserInfo::getUserIntegral();
 
 ##### 适配器模式
 
-适配器设计模式只是将某个对象的接口适配为另外一个对象所期望的接口
+==适配器设计模式只是将某个对象的接口适配为另外一个对象所期望的接口==
 
 实例：
 
@@ -279,5 +279,495 @@ $config = array(
  $row=mysql_fetch_array($result);
   print_r($row);
   mysql_free_result($result);//释放与之关联的资源 （脚本执行完毕后会自动释放内存）
+```
+
+##### 策略模式
+
+策略模式，==将一组特定的行为和算法封装成类，以适应某些特定的上下文环境==
+使用场景：电商网站根据用户类型，推荐展示不同的类目、商品信息
+
+```php
+// 用户抽象接口
+interface UserStrategy
+{
+    function showCate(); // 美食
+    function showInfo(); // 信息
+}
+
+// 男性 
+class MaleUser implements UserStrategy
+{
+    public function showCate()
+    {
+        echo "show male cate!!!\r\n";
+    }
+
+    public function showInfo()
+    {
+        echo "show male info!!!\r\n";
+    }
+}
+
+// 女性
+class FemalUser implements UserStrategy
+{
+    public function showCate()
+    {
+        echo "show female cate!!!\r\n";
+    }
+
+    public function showInfo()
+    {
+        echo "show female info!!!\r\n";
+    }
+}
+
+// 返回页信息
+class Page
+{
+    public $strategy;
+
+    public function setStrategy($obj)
+    {
+        $this->strategy = $obj;
+    }
+
+    public function show()
+    {
+        $this->strategy->showCate();
+        $this->strategy->showInfo();
+    }
+}
+
+// 根据不同的登录用户返回不同的页信息
+$page = new Page();
+
+$type = 'male';
+if ($type == 'male') {
+    $strategy = new MaleUser();
+} else if ($type == 'femal') {
+    $strategy = new FemalUser();
+}
+$page->setStrategy($strategy);
+$page->show();
+```
+
+##### 观察者模式
+
+描述：==当一个对象状态发生变化时，依赖它的对象全部收到通知，并自动更新==
+ 场景：一个事件发生后，要执行一连串更新操作，传统的编程方式，就是在时间得代码之后直接加入处理的逻辑，当更新的逻辑增多之后，代码会变的难以维护，这种方式是耦合的，侵入式的，增加新的逻辑需要修改事件的主体代码，观察者模式实现了低耦合，非侵入式的通知和更新机制。
+
+```php
+**
+ * @desc 观察者抽象接口
+ * Class Observer
+ */
+interface Observer
+{
+    function update();
+}
+
+// 事件类
+class Event
+{
+    private $observers = [];
+		
+  	// 添加观察者
+    public function addObserver(Observer $observer)
+    {
+        $this->observers[] = $observer;
+    }
+		// 通知接口
+    public function notify()
+    {
+        foreach ($this->observers as $observer) {
+            $observer->update();
+        }
+    }
+		
+  	// 触发事件
+    public function trigger()
+    {
+        echo "Event trigger!!!\r\n";
+    }
+}
+
+// 观察者1
+class Observer1 implements Observer
+{
+    public function update()
+    {
+        echo "observer1 update\r\n";
+    }
+}
+
+// 观察者2
+class Observer2 implements Observer
+{
+    public function update()
+    {
+        echo "observer2 update\r\n";
+    }
+}
+
+// 将观察者注入到事件类中，触发事件后，逐个通知
+$event = new Event();
+$event->addObserver(new Observer1());
+$event->addObserver(new Observer2());
+$event->trigger();
+$event->notify();
+```
+
+
+
+##### 控制反转
+
+==层层的依赖关系，反转到调用的起点。通过调整注入的对象，来控制程序的行为==
+
+```php
+//传统依赖写法
+class A {
+    public function action()
+    {
+        echo "class A\r\n";
+    }
+}
+
+class B {
+    public function action()
+    {
+        $a = new A();
+        $a->action();
+    }
+}
+
+class C {
+    public function action()
+    {
+        $b = new B();
+        $b->action();
+    }
+}
+
+//传统依赖写法,类耦合在一起，层层调用
+$c = new C();
+$c->action();
+
+//控制反转模式
+class NewA {
+
+    public function action()
+    {
+        echo "class newA\r\n";
+    }
+
+}
+
+class NewB {
+
+    public $obj;
+
+    public function __construct(NewA $a)
+    {
+        $this->obj = $a;
+    }
+
+    public function action() {
+        echo "class newB\r\n";
+        $this->obj->action();
+    }
+}
+
+class NewC {
+
+    public $obj;
+
+    public function __construct(NewB $b)
+    {
+        $this->obj = $b;
+    }
+
+    public function action()
+    {
+        echo "class newC\r\n";
+        $this->obj->action();
+    }
+}
+
+$obj = new NewC(new NewB(new NewA()));
+$obj->action();
+```
+
+
+
+##### 装饰器
+
+描述：装饰器模式，==可以动态地添加修改类的功能==
+
+```php
+/**
+ * 装饰器接口
+ * Interface Decorator
+ */
+interface Decorator
+{
+    public function before();
+
+    public function after();
+}
+
+// 颜色类 实现 装饰器接口
+class Color implements Decorator
+{
+    public function before()
+    {
+        echo "Color before\r\n";
+    }
+
+    public function after()
+    {
+        echo "Color after\r\n";
+    }
+}
+
+// 尺寸类 实现 装饰类接口
+class Size implements Decorator
+{
+    public function before()
+    {
+        echo "Size before\r\n";
+    }
+
+    public function after()
+    {
+        echo "Size after\r\n";
+    }
+}
+
+// 展示类
+class Show
+{
+    public $decorator = [];
+
+  	// 添加装饰类
+    public function addDecorator(Decorator $decorator)
+    {
+        $this->decorator[] = $decorator;
+    }
+
+  	// 装饰之前的样子
+    public function before()
+    {
+        foreach ($this->decorator as $item) {
+            $item->before();
+        }
+    }
+
+  	// 装饰之后的样子
+    public function after()
+    {
+        foreach ($this->decorator as $item) {
+            $item->after();
+        }
+    }
+		
+  	// 展现
+    public function index()
+    {
+        //before
+        $this->before();
+
+        //核心处理
+        echo "Show index\r\n";
+
+        //after
+        $this->after();
+    }
+}
+
+// 使用
+$show = new Show();
+$show->addDecorator(new Color());
+$show->addDecorator(new Size());
+$show->index();
+```
+
+##### 注册模式
+
+==通过将对象实例注册到一棵全局的对象树上，需要的时候从对象树上采摘的模式设计方法==
+
+下面让三种模式做个小小的结合。单纯创建一个实例对象远远没有这么复杂，但运用于大型项目的话，便利性便不言而喻了。
+
+```php
+//创建单例
+class Single{
+    public $hash;
+    static protected $ins=null;
+    final protected function __construct(){
+        $this->hash=rand(1,9999);
+    }
+
+    static public function getInstance(){
+        if (self::$ins instanceof self) {
+            return self::$ins;
+        }
+        self::$ins=new self();
+        return self::$ins;
+    } 
+}
+
+//工厂模式
+class RandFactory{
+    public static function factory(){
+        return Single::getInstance();
+    }
+}
+
+//注册树
+class Register{
+    protected static $objects;
+    public static function set($alias,$object){
+        self::$objects[$alias]=$object;
+    }
+    public static function get($alias){
+        return self::$objects[$alias];
+    }
+    public static function _unset($alias){
+        unset(self::$objects[$alias]);
+    }
+}
+
+Register::set('rand',RandFactory::factory());
+
+$object=Register::get('rand');
+
+print_r($object);
+```
+
+##### 依赖注入模式
+
+**依赖注入（Dependency Injection）**是**控制反转（Inversion of Control）**的一种实现方式。
+
+要实现控制反转，通常的解决方案是将创建被调用者实例的工作交由 IoC 容器来完成，然后在调用者中注入被调用者（通过构造器/方法注入实现），这样我们就实现了调用者与被调用者的解耦，该过程被称为依赖注入。
+
+```php
+// 超能力接口
+interface SuperModuleInterface{
+    /**
+     * 超能力激活方法
+     *
+     * 任何一个超能力都得有该方法，并拥有一个参数
+     *@param array $target 针对目标，可以是一个或多个，自己或他人
+     */
+    public function activate(array $target);
+}
+
+/**
+ * 终极炸弹 ，超能力之一， 实现超能力接口
+ */
+class UltraBomb implements SuperModuleInterface
+{
+    public function activate(array $targets)
+    {
+        $str = '';
+        foreach ($targets as $target) {
+            $str .= "对" . $target . "使用 UltraBomb\n";
+        }
+        return $str;
+    }
+}
+
+/**
+ * X-超能量 ， 超能力之一， 实现超能力接口
+ */
+class XPower implements SuperModuleInterface
+{
+    public function activate(array $targets)
+    {
+        $str = '';
+        foreach ($targets as $target) {
+            $str .= "对" . $target . "使用 XPower\n";
+        }
+        return $str;
+    }
+}
+
+// 超人
+class Superman
+{
+    protected $module;
+
+    public function __construct(SuperModuleInterface $module)
+    {
+        $this->module = $module;
+    }
+
+    public function fire(array $targets){
+        return $this->module->activate($targets);
+    }
+}
+
+// 超能力模组
+$superModule = new XPower();
+// 初始化一个超人，并注入一个超能力模组依赖
+$superMan = new Superman($superModule);
+$result1 = $superMan->fire(['user1', 'user2']);
+$this->assertEquals("对user1使用 XPower\n对user2使用 XPower\n", $result1);
+
+
+// 超能力模组
+$superModule2 = new UltraBomb();
+// 初始化一个超人，并注入一个超能力模组依赖
+$superMan2 = new Superman($superModule2);
+$result2 = $superMan2->fire(['user3']);
+$this->assertEquals("对user3使用 UltraBomb\n", $result2);
+```
+
+##### 原型模式
+
+原型模式的核心思想是，先创建好一个原型对象，然后通过clone原型对象来创建新的对象。
+
+这样就免去了类创建是重复的初始化操作。原型模式适用于对大对象的创建，大对象每次new消耗很大，原型模式仅需内存拷贝即可。
+
+```php
+/*抽象原型角色*/
+abstract class Prototype {
+    abstract function cloned();
+}
+
+/*具体原型角色*/
+class Plane extends Prototype {
+    public $color;
+
+    public function Fly()
+    {
+        echo "飞机飞啊飞\n";
+    }
+
+    public function cloned()
+    {
+        return clone $this;
+    }
+}
+
+/*客户角色*/
+class Client {
+    public static function main()
+    {
+        $plane1 = new Plane();
+
+        $plane1->color = "blue";
+
+        $plane2 = $plane1->cloned();
+
+        $plane1->Fly();
+        $plane2->Fly();
+
+        echo "plane1的颜色为: {$plane1->color}\n";
+        echo "plane2的颜色为: {$plane2->color}\n";
+    }
+}
+
+Client::main();
 ```
 
