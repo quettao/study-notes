@@ -1,3 +1,5 @@
+
+
 ## 算法
 
 ### 树的遍历
@@ -275,4 +277,224 @@ function maxSubArray($nums) {
     return $max;
 }
 ```
+
+### 数字的补数
+
+对整数的二进制表示取反（0 变 1 ，1 变 0）后，再转换为十进制表示，可以得到这个整数的补数。
+
+例如，整数 5 的二进制表示是 "101" ，取反后得到 "010" ，再转回十进制表示得到补数 2 。
+给你一个整数 num ，输出它的补数。
+
+**示例 1：**
+
+```
+输入：num = 5
+输出：2
+解释：5 的二进制表示为 101（没有前导零位），其补数为 010。所以你需要输出 2 。
+```
+
+**示例 2：**
+
+```
+输入：num = 1
+输出：0
+解释：1 的二进制表示为 1（没有前导零位），其补数为 0。所以你需要输出 0 。
+```
+
+算法：
+
+1. 通过右移1位来遍历二进制数位数。
+2. 遍历的同时，定义一个二进制数$res，每位赋值1。
+3. 按位异或，\$res ^ $num就有取反的效果。
+
+```php
+class Solution {
+
+    /**
+     * @param Integer $num
+     * @return Integer
+     */
+    function findComplement($num) {
+        $tmp = $num;
+        $res = 0;
+        while ($tmp != 0) {
+            $res = ($res << 1) + 1;
+            $tmp >>= 1;
+        }
+
+        return $num ^ $res;
+    }
+}
+```
+
+### 两数之和
+
+给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出 和为目标值 target  的那 两个 整数，并返回它们的数组下标。
+
+你可以假设每种输入只会对应一个答案。但是，数组中同一个元素在答案里不能重复出现。
+
+你可以按任意顺序返回答案。
+
+**示例 1：**
+
+```
+输入：nums = [2,7,11,15], target = 9
+输出：[0,1]
+解释：因为 nums[0] + nums[1] == 9 ，返回 [0, 1] 。
+```
+
+**示例 2：**
+
+```
+输入：nums = [3,2,4], target = 6
+输出：[1,2]
+
+```
+
+**示例 3：**
+
+```
+输入：nums = [3,3], target = 6
+输出：[0,1]
+```
+
+```php
+class Solution {
+
+    /**
+     * @param Integer[] $nums
+     * @param Integer $target
+     * @return Integer[]
+     */
+    function twoSum($nums, $target) {
+        $map=[];//哈希查找表
+        foreach($nums as $key=>$item){
+            $b=$target-$item;
+            if(isset($map[$b])){
+                return [$map[$b],$key];//找到返回
+            }else{
+                $map[$item]=$key;//放入哈希表
+            }
+        }
+    }
+}
+
+```
+
+
+
+### 整数反转
+
+给你一个 32 位的有符号整数 x ，返回将 x 中的数字部分反转后的结果。
+
+如果反转后整数超过 32 位的有符号整数的范围 [−231,  231 − 1] ，就返回 0。
+
+假设环境不允许存储 64 位整数（有符号或无符号）。
+
+**示例 1：**
+
+```
+输入：x = 123
+输出：321
+
+
+```
+
+**示例 2：**
+
+```
+输入：x = -123
+输出：-321
+
+```
+
+**示例 3：**
+
+```
+输入：x = 120
+输出：21
+
+```
+
+**示例 4：**
+
+```
+输入：x = 0
+输出：0
+```
+
+```php
+/**
+ * @param Integer $x
+ * @return Integer
+ */
+function reverse($x) {
+   if (!is_int($x)) return 0;
+    $res = 0;
+    $max = pow(2, 31) - 1;
+    $min = pow(-2, 31);
+    while ($x != 0) {
+        $remainder = $x % 10;
+        $x = ($x - $remainder) / 10;
+        $res = $res * 10 + $remainder;
+    }
+    if ($res > $max) return 0;
+    if ($res < $min) return 0;
+    return $res;
+
+}
+
+```
+
+
+
+### 回文数
+
+给你一个整数 x ，如果 x 是一个回文整数，返回 true ；否则，返回 false 。
+
+回文数是指正序（从左向右）和倒序（从右向左）读都是一样的整数。例如，121 是回文，而 123 不是。
+
+**示例 1：**
+
+```
+输入：x = 121
+输出：true
+```
+
+**示例 2：**
+
+```
+输入：x = -121
+输出：false
+解释：从左向右读, 为 -121 。 从右向左读, 为 121- 。因此它不是一个回文数。
+```
+
+**解题思路**
+
+​	转字符串
+
+```php
+/**
+     * @param Integer $x
+     * @return Boolean
+     */
+    function isPalindrome($x) {
+        if ($x < 0 ) return false;
+        
+        $str = strval($x);
+        $len = strlen($str);
+        $k   = 0;
+
+        while ($k < $len / 2) {
+            if ($str[$k] !== $str[$len - $k - 1]) return false;
+            $k++;
+        }
+
+        return true;
+    }
+
+
+```
+
+
 

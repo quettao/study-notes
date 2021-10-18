@@ -392,7 +392,7 @@ PHP 默认并不支持多线程，要使用多线程需要安装 pthread 扩展�
 2. A 线程获取数组长度为1;
 3. B 线程获取数组长度为1;
 4. A 线程 pop 出数组元素 `$a = array_pop($arr); $a = 'a';`;
-5. B 线程也 pop 数组元素 `$b = array_pop($arr); $a = null;`;
+5. B 线程也 pop 数组元素 `$b = array_pop($arr); $b = null;`;
 6. 此时 B 线程内就出现了灵异事件，明明数组长度大于0，或没有 pop 出东西;
 
 PHP 实现
