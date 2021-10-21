@@ -498,3 +498,507 @@ function reverse($x) {
 
 
 
+### 罗马数字转整数
+
+罗马数字包含以下七种字符: I， V， X， L，C，D 和 M。
+
+```
+字符          数值
+I             1
+V             5
+X             10
+L             50
+C             100
+D             500
+M             1000
+```
+
+例如， 罗马数字 2 写做 II ，即为两个并列的 1。12 写做 XII ，即为 X + II 。 27 写做  XXVII, 即为 XX + V + II 。
+
+通常情况下，罗马数字中小的数字在大的数字的右边。但也存在特例，例如 4 不写做 IIII，而是 IV。数字 1 在数字 5 的左边，所表示的数等于大数 5 减小数 1 得到的数值 4 。同样地，数字 9 表示为 IX。这个特殊的规则只适用于以下六种情况：
+
+​	I 可以放在 V (5) 和 X (10) 的左边，来表示 4 和 9。
+​	X 可以放在 L (50) 和 C (100) 的左边，来表示 40 和 90。 
+​	C 可以放在 D (500) 和 M (1000) 的左边，来表示 400 和 900。
+给定一个罗马数字，将其转换成整数。输入确保在 1 到 3999 的范围内。
+
+**示例 1:**
+
+```
+输入: "III"
+输出: 3
+```
+
+**示例 2:**
+
+```
+输入: "IV"
+输出: 4
+```
+
+**示例 3:**
+
+```
+输入: "IX"
+输出: 9
+```
+
+**示例 4:**
+
+```
+输入: "LVIII"
+输出: 58
+解释: L = 50, V= 5, III = 3.
+```
+
+**示例 5:**
+
+```
+输入: "MCMXCIV"
+输出: 1994
+解释: M = 1000, CM = 900, XC = 90, IV = 4.
+```
+
+```php
+/**
+     * @param String $s
+     * @return Integer
+     */
+    function romanToInt($s) {
+        $arr = ['I' => 1, 'V' => 5, 'X' => 10, 'L' => 50, 'C' => 100, 'D' => 500, 'M' => 1000];
+        $a = str_split($s);
+        $r = 0;
+        $p = 0;
+        foreach($a as $k) {
+            if ($p && $arr[$k] > $p) {
+              // IV = I + V - I * 2 , 为什么是$p * 2 的原因
+                $r += $arr[$k] - $p * 2;
+            } else {
+                $r += $arr[$k];
+            }
+            $p = $arr[$k];
+        }
+        return $r;
+    }
+
+```
+
+
+
+### 最长公共前缀
+
+编写一个函数来查找字符串数组中的最长公共前缀。
+
+如果不存在公共前缀，返回空字符串 `""`。
+
+**示例 1：**
+
+```
+输入：strs = ["flower","flow","flight"]
+输出："fl"
+```
+
+**示例 2：**
+
+```
+输入：strs = ["dog","racecar","car"]
+输出：""
+解释：输入不存在公共前缀。
+```
+
+```php
+/**
+ * @param String[] $strs
+ * @return String
+ */
+function longestCommonPrefix($strs) {
+  $commonPre = '';
+	if (empty($strs)) return $commonPre;
+  
+	if (! isset($strs[1])) return $strs[0];
+  
+  // 对数组降序排序,SORT_STRING - 单元被作为字符串来比较
+	rsort($strs, SORT_STRING);
+  
+  // 取数组两头，排序之后差异最大
+	$first_ele = array_shift($strs);
+	$last_ele = array_pop($strs);
+  
+	$len = strlen($first_ele);
+	for ($i = 0; $i < $len; ++$i) {
+		if ($first_ele[$i] != $last_ele[$i]) break;
+		$commonPre .= $first_ele[$i];
+	}
+	return $commonPre;
+}
+
+```
+
+
+
+### 有效的括号
+
+给定一个只包括 '('，')'，'{'，'}'，'['，']' 的字符串 s ，判断字符串是否有效。
+
+有效字符串需满足：
+
+左括号必须用相同类型的右括号闭合。
+左括号必须以正确的顺序闭合。
+
+**示例 1：**
+
+```
+输入：s = "()"
+输出：true
+```
+
+**示例 2：**
+
+```
+输入：s = "()[]{}"
+输出：true
+```
+
+**示例 3：**
+
+```
+输入：s = "(]"
+输出：false
+```
+
+**示例 4：**
+
+```
+输入：s = "([)]"
+输出：false
+```
+
+**示例 5：**
+
+```
+输入：s = "{[]}"
+输出：true
+```
+
+
+
+遍历整个字符串，遇到左括号就入栈，然后遇到和栈顶对应的右括号就出栈，遍历结束后，如果栈为空，就表示全部匹配。
+
+```php
+  /**
+     * @param String $s
+     * @return Boolean
+     */
+    function isValid($s) {
+        $map = [
+            ")" => "(",
+            "}" => "{",
+            "]" => "[",
+        ];
+
+        $len = strlen($s);
+        $stack = [];
+
+        //s中出现map的key则弹出，没有出现则入栈
+        for ($i =0; $i<$len; $i++) {
+            if (isset($map[$s[$i]])){
+                //s中出现map的key：如果能找到对应的map的值 (,{,[ 则说明有配对，则弹出
+                if (isset($stack)  && $stack[0] == $map[$s[$i]]) {
+                    array_shift($stack);
+                } else { //仅找到后面的一部分，说明是不匹配的
+                    return false;
+                }
+            } else {
+                array_unshift($stack, $s[$i]);
+            }
+        }
+
+        if (count($stack) > 0) {
+            return false;
+        }
+
+        return true;
+    }
+```
+
+
+
+### 合并两个链表
+
+将两个升序链表合并为一个新的 **升序** 链表并返回。新链表是通过拼接给定的两个链表的所有节点组成的。 
+
+**示例 1：**
+
+![img](algorithm.assets/merge_ex1.jpg)
+
+```
+输入：l1 = [1,2,4], l2 = [1,3,4]
+输出：[1,1,2,3,4,4]
+```
+
+**示例 2：**
+
+```
+输入：l1 = [], l2 = []
+输出：[]
+```
+
+**示例 3：**
+
+```
+输入：l1 = [], l2 = [0]
+输出：[0]
+```
+
+**非递归解法**
+
+```php
+function mergeTwoLists($l1, $l2)
+{
+    $dummyHead = new ListNode(null);
+    $cur = $dummyHead;
+    while ($l1 !== null && $l2 !== null) {
+        if ($l1->val <= $l2->val) {
+            $cur->next = $l1;
+            $l1 = $l1->next;
+        } else {
+            $cur->next = $l2;
+            $l2 = $l2->next;
+        }
+        $cur = $cur->next;
+    }
+
+    if ($l1 !== null) {
+        $cur->next = $l1;
+    } elseif ($l2 !== null) {
+        $cur->next = $l2;
+    }
+
+    return $dummyHead->next;
+}
+
+```
+
+**递归解法**
+
+```php
+function mergeTwoLists($l1, $l2)
+{
+    // 递归解法
+    // 递归函数的含义：返回当前两个链表合并之后的头节点(每一层都返回排序好的链表头)
+    if ($l1 === null) return $l2;
+    if ($l2 === null) return $l1;
+
+    if ($l1->val < $l2->val) {
+        $l1->next = $this->mergeTwoLists($l1->next, $l2);
+        return $l1;
+    } else {
+        $l2->next = $this->mergeTwoLists($l1, $l2->next);
+        return $l2;
+    }
+}
+
+```
+
+
+
+### 删除有序数组中的重复项
+
+给你一个有序数组 nums ，请你 原地 删除重复出现的元素，使每个元素 只出现一次 ，返回删除后数组的新长度。
+
+不要使用额外的数组空间，你必须在 原地 修改输入数组 并在使用 O(1) 额外空间的条件下完成。
+
+说明:
+
+为什么返回数值是整数，但输出的答案是数组呢?
+
+请注意，输入数组是以「引用」方式传递的，这意味着在函数里修改输入数组对于调用者是可见的。
+
+你可以想象内部操作如下:
+
+```
+// nums 是以“引用”方式传递的。也就是说，不对实参做任何拷贝
+int len = removeDuplicates(nums);
+
+// 在函数里修改输入数组对于调用者是可见的。
+// 根据你的函数返回的长度, 它会打印出数组中 该长度范围内 的所有元素。
+for (int i = 0; i < len; i++) {
+    print(nums[i]);
+}
+```
+
+
+
+**示例 1**：
+
+```
+输入：nums = [1,1,2]
+输出：2, nums = [1,2]
+解释：函数应该返回新的长度 2 ，并且原数组 nums 的前两个元素被修改为 1, 2 。不需要考虑数组中超出新长度后面的元素。
+```
+
+**示例 2：**
+
+```
+输入：nums = [0,0,1,1,1,2,2,3,3,4]
+输出：5, nums = [0,1,2,3,4]
+解释：函数应该返回新的长度 5 ， 并且原数组 nums 的前五个元素被修改为 0, 1, 2, 3, 4 。不需要考虑数组中超出新长度后面的元素。
+```
+
+```php
+   /**
+     * @param Integer[] $nums
+     * @return Integer
+     */
+    function removeDuplicates(&$nums) 
+    {
+        $n = count($nums);
+
+        for ($i = $n - 1; $i > 0; --$i) {
+            if ($nums[$i] == $nums[$i - 1]) {
+                // echo 'delete i='. $i, PHP_EOL;
+                unset($nums[$i]);
+            }
+        }
+    }
+
+```
+
+```php
+// 快慢指针解法
+function removeDuplicates(&$nums) {
+  $n = count($nums);
+  $s = 0; $f = 1; // 两个指针
+  while ($f < $n) {
+    if ($nums[$s] != $nums[$f]) {
+      $nums[++$s] = $nums[$f];
+    }
+    $f++;
+  }
+  return $s;
+}
+```
+
+
+
+### 移除元素
+
+给你一个数组 nums 和一个值 val，你需要 原地 移除所有数值等于 val 的元素，并返回移除后数组的新长度。
+
+不要使用额外的数组空间，你必须仅使用 O(1) 额外空间并 原地 修改输入数组。
+
+元素的顺序可以改变。你不需要考虑数组中超出新长度后面的元素。
+
+说明:
+
+为什么返回数值是整数，但输出的答案是数组呢?
+
+请注意，输入数组是以「引用」方式传递的，这意味着在函数里修改输入数组对于调用者是可见的。
+
+你可以想象内部操作如下:
+
+```
+// nums 是以“引用”方式传递的。也就是说，不对实参作任何拷贝
+int len = removeElement(nums, val);
+
+// 在函数里修改输入数组对于调用者是可见的。
+// 根据你的函数返回的长度, 它会打印出数组中 该长度范围内 的所有元素。
+for (int i = 0; i < len; i++) {
+    print(nums[i]);
+}
+
+```
+
+**示例 1：**
+
+```
+输入：nums = [3,2,2,3], val = 3
+输出：2, nums = [2,2]
+解释：函数应该返回新的长度 2, 并且 nums 中的前两个元素均为 2。你不需要考虑数组中超出新长度后面的元素。例如，函数返回的新长度为 2 ，而 nums = [2,2,3,3] 或 nums = [2,2,0,0]，也会被视作正确答案。
+```
+
+**示例 2：**
+
+```
+输入：nums = [0,1,2,2,3,0,4,2], val = 2
+输出：5, nums = [0,1,4,0,3]
+解释：函数应该返回新的长度 5, 并且 nums 中的前五个元素为 0, 1, 3, 0, 4。注意这五个元素可为任意顺序。你不需要考虑数组中超出新长度后面的元素。
+```
+
+```php
+ /**
+     * @param Integer[] $nums
+     * @param Integer $val
+     * @return Integer
+     */
+    function removeElement(&$nums, $val) {        
+        foreach($nums as $k => $v){
+            if($v == $val ){
+                unset($nums[$k]);
+            }            
+        }
+        
+        return count($nums);
+    }
+
+```
+
+
+
+### 实现 strStr()
+
+实现 strStr() 函数。
+
+给你两个字符串 haystack 和 needle ，请你在 haystack 字符串中找出 needle 字符串出现的第一个位置（下标从 0 开始）。如果不存在，则返回  -1 。
+
+**说明：**
+
+当 needle 是空字符串时，我们应当返回什么值呢？这是一个在面试中很好的问题。
+
+对于本题而言，当 needle 是空字符串时我们应当返回 0 。这与 C 语言的 strstr() 以及 Java 的 indexOf() 定义相符。
+
+**示例 1：**
+
+```
+输入：haystack = "hello", needle = "ll"
+输出：2
+```
+
+**示例 2：**
+
+```
+输入：haystack = "aaaaa", needle = "bba"
+输出：-1
+```
+
+**示例 3：**
+
+```
+输入：haystack = "", needle = ""
+输出：0
+```
+
+```php
+ function strStr($haystack, $needle) {
+        if($needle == ''){return 0;}    // 空字符串返回0
+        $len = strlen($haystack);
+        $length = strlen($needle);
+       
+        $i = 0;$j = 0;
+        while($i<$len && $j < $length){
+            if($haystack[$i] == $needle[$j]){
+                $i++;
+                $j++;
+            }else{
+                $i = $i - $j + 1;
+                $j = 0;
+            }
+            if($j == $length){
+                return $i-$j;
+            }
+        }
+        return -1;
+    }
+
+```
+
