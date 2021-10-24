@@ -1002,3 +1002,234 @@ for (int i = 0; i < len; i++) {
 
 ```
 
+
+
+### 搜索插入位置
+
+给定一个排序数组和一个目标值，在数组中找到目标值，并返回其索引。如果目标值不存在于数组中，返回它将会被按顺序插入的位置。
+
+请必须使用时间复杂度为 `O(log n)` 的算法。
+
+**示例 1:**
+
+```
+输入: nums = [1,3,5,6], target = 5
+输出: 2
+```
+
+**示例 2:**
+
+```
+输入: nums = [1,3,5,6], target = 2
+输出: 1
+```
+
+**示例 3:**
+
+```
+输入: nums = [1,3,5,6], target = 7
+输出: 4
+```
+
+**示例 4:**
+
+```
+输入: nums = [1,3,5,6], target = 0
+输出: 0
+```
+
+**示例 5:**
+
+```
+输入: nums = [1], target = 0
+输出: 0
+```
+
+```php
+public function searchInsert($nums, $target) {
+        $n = count($nums);
+        if ($n === 0) return 0;
+        if ($target < $nums[0]) return 0;
+        if ($target > end($nums)) return $n;
+
+        $l = 0;
+        $r = $n - 1;
+        while ($l < $r) {
+            $mid = $l + floor(($r - $l) / 2);
+            if ($nums[$mid] === $target) return $mid;
+            // 当中间元素严格小于目标元素时，肯定不是解
+            if ($nums[$mid] < $target) {
+                // 下一轮搜索区间是 [mid+1, right]
+                $l = $mid + 1;
+            } else {
+                $r = $mid;
+            }
+        }
+
+        return $l;
+}
+```
+
+
+
+### 最后一个单词的长度
+
+给你一个字符串 `s`，由若干单词组成，单词前后用一些空格字符隔开。返回字符串中最后一个单词的长度。
+
+**单词** 是指仅由字母组成、不包含任何空格字符的最大子字符串。
+
+
+
+**示例 1：**
+
+```
+输入：s = "Hello World"
+输出：5
+```
+
+**示例 2：**
+
+```
+输入：s = "   fly me   to   the moon  "
+输出：4
+```
+
+**示例 3：**
+
+```
+输入：s = "luffy is still joyboy"
+输出：6
+```
+
+```php
+function lengthOfLastWord($s) {
+        // 下面这一行,有点偷懒了,直接生对内置函数^_^ 请忽略下面这行
+        // return strlen(array_pop(explode(' ',rtrim($s))));
+        // 万恶的上面一行
+        if (empty($s)) return 0;
+        $count = strlen($s);
+        $len = 0;
+        for ($i=$count-1;$i>=0;$i--) {
+            if ($s[$i] != ' ') {
+                $len++;
+            }
+            if ($len !=0 && $s[$i] == ' ') {
+                break;
+            }
+        }
+        return $len;
+}
+```
+
+
+
+### 加一
+
+给定一个由 整数 组成的 非空 数组所表示的非负整数，在该数的基础上加一。
+
+最高位数字存放在数组的首位， 数组中每个元素只存储单个数字。
+
+你可以假设除了整数 0 之外，这个整数不会以零开头。
+
+**示例 1：**
+
+```
+输入：digits = [1,2,3]
+输出：[1,2,4]
+解释：输入数组表示数字 123
+```
+
+**示例 2：**
+
+```
+输入：digits = [4,3,2,1]
+输出：[4,3,2,2]
+解释：输入数组表示数字 4321。
+```
+
+**示例 3：**
+
+```
+输入：digits = [0]
+输出：[1]
+```
+
+```php
+function plusOne($digits) {
+    $len1 = count($digits);
+    if ($len1 == 0) return [1];
+    $carry = 0;
+    $return = [];
+    $i = $len - 1;
+    // 直接在最后一位加上
+    $digits[$i]++;
+    if ($digits[$i] <= 9) return $digits;
+    while ($i >= 0 || $carry) {
+        $sum = $carry;
+        if ($i >= 0) {
+            $sum += $digits[$i];
+            $i--;
+        }
+
+        $carry = floor($sum / 10);
+        array_unshift($return, $sum % 10);
+    }
+    return $return;
+}
+
+```
+
+
+
+### 二进制求和
+
+给你两个二进制字符串，返回它们的和（用二进制表示）。
+
+输入为 **非空** 字符串且只包含数字 `1` 和 `0`。
+
+**示例 1:**
+
+```
+输入: a = "11", b = "1"
+输出: "100"
+```
+
+**示例 2:**
+
+```
+输入: a = "1010", b = "1011"
+输出: "10101"
+```
+
+```php
+function addBinary($a, $b) {
+    $len1 = strlen($a);
+    $len2 = strlen($b);
+    if ($len1 == 0) return $b;
+    if ($len2 == 0) return $a;
+
+    $return = '';
+    $carry = 0;
+    $i = $len1 - 1;
+    $j = $len2 - 1;
+    while ($i >= 0 || $j >= 0 || $carry) {
+        $sum = $carry;
+        if ($i >= 0) {
+            $sum += substr($a, $i, 1);
+            $i--;
+        }
+
+        if ($j >= 0) {
+            $sum += substr($b, $j, 1);
+            $j--;
+        }
+        
+        // 进位处理，大于 2 就进一位
+        $carry = $sum >= 2 ? 1 : 0;
+        // 当前位剩余的只能是 0 或 1
+        $return = ($sum & 1) . $return;
+    }
+    return $return;
+}
+```
+
