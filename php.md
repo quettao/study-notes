@@ -1,5 +1,121 @@
 ### php
 
+### php 内置缓存
+
+#### 1. ob缓存
+
+```php
+ob_start();            // 打开一个输出缓冲区，所有的输出信息不再直接发送到浏览器，而是保存在输出缓冲区里面。
+ 
+ob_clean();            // 删除内部缓冲区的内容，不关闭缓冲区(不输出)。
+ob_end_clean();        // 删除内部缓冲区的内容，关闭缓冲区(不输出)。
+ob_get_clean();        // 返回内部缓冲区的内容，关闭缓冲区。相当于执行 ob_get_contents() and ob_end_clean()
+ob_flush();            // 发送内部缓冲区的内容到浏览器，删除缓冲区的内容，不关闭缓冲区。
+ob_end_flush();        // 发送内部缓冲区的内容到浏览器，删除缓冲区的内容，关闭缓冲区。
+ob_get_flush();        // 返回内部缓冲区的内容，并关闭缓冲区，再释放缓冲区的内容。相当于ob_end_flush()并返回缓冲区内容。
+flush();               // 将ob_flush释放出来的内容，以及不在PHP缓冲区中的内容，全部输出至浏览器；刷新内部缓冲区的内容，并输出。
+ 
+ob_get_contents();     // 返回缓冲区的内容，不输出。
+ob_get_length();       // 返回内部缓冲区的长度，如果缓冲区未被激活，该函数返回FALSE。
+ob_get_level();        // 返回输出缓冲机制的嵌套级别
+ob_get_status();       // 得到所有输出缓冲区的状态
+ 
+ob_implicit_flush();   // 打开或关闭绝对刷新，默认为关闭，打开后ob_implicit_flush(true)，所谓绝对刷新，即当有输出语句(e.g: echo)被执行时，便把输出直接发送到浏览器，而不再需要调用flush()或等到脚本结束时才输出。
+ 
+ob_gzhandler               // ob_start回调函数，用gzip压缩缓冲区的内容。
+ob_list_handlers           // List all output handlers in use
+output_add_rewrite_var     // 添加URL重写器的值
+output_reset_rewrite_vars  // 重设URL重写器的值
+ 
+// 这些函数的行为受php_ini设置的影响：
+output_buffering       // 该值为ON时，将在所有脚本中使用输出控制；若该值为一个数字，则代表缓冲区的最大字节限制，当缓存内容达到该上限时将会自动向浏览器输出当前的缓冲区里的内容。
+output_handler         // 该选项可将脚本所有的输出，重定向到一个函数。例如，将 output_handler 设置为 mb_output_handler() 时，字符的编码将被修改为指定的编码。设置的任何处理函数，将自动的处理输出缓冲。
+implicit_flush         // 作用同ob_implicit_flush，默认为Off。
+```
+
+#### php.ini 中 ob参数影响
+
+```php.ini
+output_buffering = 4096 # 缓冲区大小, 默认是 4096 表示 4096 字节也就是 4kB。
+```
+
+实例: PHP实现自动化缓存的功能，只需要直接把这个php文件引入到需要缓存的页面即可**实现get请求的页面缓存**
+
+```php
+/* 
+【PHP实现页面缓存处理】 
+auto_cache.php 实现智能的自动缓存。
+在需要实现缓存功能的页面 require('auto_cache.php');即可;
+存放缓存的根目录,最好是放到/tmp目录,尤其是虚拟主机用户,因为/tmp目录不占自己的主页空间啊
+
+ob_start() 开始输出缓冲, 这时PHP停止输出, 在这以后的输出都被转到一个内部的缓冲里. 
+ob_get_contents() 这个函数返回内部缓冲的内容. 这就等于把这些输出都变成了字符串. 
+ob_get_ length() 返回内部缓冲的长度. 
+ob_end_flush() 结束输出缓冲, 并输出缓冲里的内容. 在这以后的输出都是正常输出. 
+ob_end_clean() 结束输出缓冲, 并扔掉缓冲里的内容. 
+*/ 
+
+define('CACHE_ROOT', dirname(__FILE__).'/cache'); 
+define('CACHE_LIFE', 86400); //缓存文件的生命期，单位秒，86400秒是一天 
+define('CACHE_SUFFIX','.html'); //缓存文件的扩展名，千万别用 .php .asp .jsp .pl 等等
+
+$file_name = md5($_SERVER['REQUEST_URI']).CACHE_SUFFIX; //缓存文件名
+
+//$file_name = $_SERVER['REQUEST_URI'].CACHE_SUFFIX; //缓存文件名
+
+echo("<script>console.log('".$file_name."');</script>");
+
+//缓存目录，根据md5的前两位把缓存文件分散开。避免文件过多。如果有必要，可以用第三四位为名，再加一层目录。
+//256个目录每个目录1000个文件的话，就是25万个页面。两层目录的话就是65536*1000=六千五百万。
+//不要让单个目录多于1000，以免影响性能。
+
+$cache_dir = CACHE_ROOT.'/'.substr($file_name,0,2); 
+$cache_file = $cache_dir.'/'.$file_name; //缓存文件存放路径
+
+  if	($_SERVER['REQUEST_METHOD']=='GET'){ //GET方式请求才缓存，POST之后一般都希望看到最新的结果 
+      if (file_exists($cache_file) && time() - filemtime($cache_file) < CACHE_LIFE) { //如果缓存文件存在，并且没有过期，就把它读出来。
+          $fp = fopen($cache_file,'rb'); 
+          fpassthru($fp); 
+          fclose($fp); 
+          exit(); 
+  		} elseif ( !file_exists($cache_dir) ){ 
+          if ( !file_exists(CACHE_ROOT) ) { 
+              mkdir(CACHE_ROOT,0777); 
+              chmod(CACHE_ROOT,0777); 
+					} 
+  				mkdir($cache_dir,0777); 
+  				chmod($cache_dir,0777); 
+  		}
+
+      function auto_cache($contents) { //回调函数，当程序结束时自动调用此函数 
+          global $cache_file; 
+          $fp = fopen($cache_file,'wb'); 
+          fwrite($fp,$contents); 
+          fclose($fp); 
+          chmod($cache_file,0777); 
+          clean_old_cache(); //生成新缓存的同时，自动删除所有的老缓存。以节约空间。
+          return $contents; 
+      }
+
+      function clean_old_cache(){ 
+        chdir(CACHE_ROOT); 
+        foreach (glob("*/*".CACHE_SUFFIX) as $file){ 
+            if ( time()-filemtime($file) > CACHE_LIFE) { 
+              unlink($file); 
+            } 
+        } 
+      }
+
+			ob_start('auto_cache'); //回调函数 auto_cache 
+	} else{ 
+    if(file_exists($cache_file)){ //file_exists() 函数检查文件或目录是否存在。
+    		unlink($cache_file); //不是GET的请求就删除缓存文件。
+		} 
+	} 
+```
+
+
+
 ### 多进程
 
 ##### 理论讲解
@@ -132,7 +248,7 @@ while(1) {}
 
 上面的代码同样可以利用在你定时计划的脚本里，在开头加上就好了。相当于对单个脚本加上进程锁。 
 
-2.进程锁实现多进程\
+2.进程锁实现多进程
 
 上面说的是一个锁对应一个php脚本，那要用进程锁实现多进程的话，其实就是让一个进程可以有多个进程锁就好了。 
 
@@ -179,7 +295,7 @@ while(1) {}
 在PHP中，父进程对子进程的状态收集等是通过==pcntl_wait()==和==pcntl_waitpid()==等完成的。依然还是要通过代码还演示说明： 演示并说明孤儿进程的出现，并演示孤儿进程被init进程收养：
 
 ```php
-$id = pcntl_fork();
+$pid = pcntl_fork();
 if( $pid > 0 ){
     // 显示父进程的进程ID，这个函数可以是getmypid()，也可以用posix_getpid()
     echo "Father PID:".getmypid().PHP_EOL;
@@ -584,6 +700,202 @@ $ php thread.php
 (a)线程运行完成,退出.
 等待退出中...
 退出成功
+```
+
+
+
+### php7异常与错误处理和自定义异常
+
+#### 什么叫做异常？
+
+异常是指程序运行中不符合预期情况以及与正常流程不同的状况。
+
+比如你链接数据库，在参数都写上去的条件下，发现链接不上去，这就属于不符合预期
+
+可以被 try-catch 捕捉得到
+
+##### 异常处理
+
+在以前的 php5.X 中 并且不能被 try-catch 捕捉得到，到了 php 7.x 中，定义了一个 Throwable 接口 并使得大部分的 Error 和
+Exception 实现了该接口，我们得以在 try-catch 中抛出该错误
+
+所以说以后想要捕获异常，而你又不知道此异常是 Error 还是 Exception 的话，可以向这样抛出
+
+```php
+try{
+    ……
+}catch(Throwable $e){
+    ……
+}
+
+```
+
+
+
+#### 什么叫做错误？
+
+是属于php程序自身的问题，一般是由非法的语法，环境问题导致的，使得编译器无法通过检查，甚至无法运行的情况。
+平时遇到的 warming、notice都是错误，只是级别不同而已。
+
+例如：
+
+- TypeError（类型错误） 我规定的函数参数类型和传入的参数不一致
+- ArithmeticError （算数错误）
+- ParseError （解析错误）在调入的文件中，include "demo.php"，或者 eval();中有语法错误造成解析失败
+- AssertionError（断言错误）当assert生效时产生该错误
+- DivisionByZeroError （分母为零） 运算过程中例如除法，分母为0
+
+除了这几种情况，其余全部为异常
+
+##### 错误的级别
+
+在 php 中的错误也是有级别的
+
+```
+Parse error` >`Fatal Error` > `Waning` > `Notice` > `Deprecated
+
+Deprecated 最低级别的错误(不推荐，不建议)
+使用一些过期函数的时候会出现，程序继续执行
+
+Notice 通知级别的错误
+使用一些未定义变量、常量或者数组key没有加引号的时候会出现，程序继续执行
+        E_NOTICE      // 运行时通知。表示脚本遇到可能会表现为错误的情况.
+        E_USER_NOTICE // 用户产生的通知信息。
+        
+Waning 警告级别的错误
+程序出问题了，需要修改代码！！！程序继续执行
+        E_WARNING         // 运行时警告 (非致命错误)。
+        E_CORE_WARNING    // PHP初始化启动过程中发生的警告 (非致命错误) 。
+        E_COMPILE_WARNING // 编译警告
+        E_USER_WARNING    // 用户产生的警告信息
+        
+Fatal Error 错误级别的错误
+程序直接报错，需要修改代码！！！中断程序执行，可使用register_shutdown_function()函数在程序终止前触发一个函数
+        E_ERROR         // 致命的运行错误，错误无法恢复，暂停执行脚本
+        E_CORE_ERROR    // PHP启动时初始化过程中的致命错误
+        E_COMPILE_ERROR // 编译时致命性错，就像由Zend脚本引擎生成了一个E_ERROR
+        E_USER_ERROR    // 自定义错误消息。像用PHP函数trigger_error（错误类型设置为：E_USER_ERROR）
+        
+Parse error 语法解析错误
+语法检查阶段报错，需要修改代码！！！中断程序执行，除了修改ini文件，将错误信息写到日志中，什么也做不了
+        E_PARSE  //编译时的语法解析错误
+```
+
+
+
+#### 自定义错误处理程序
+
+php 给我们提供了三个函数来帮助我们来处理，分别是
+
+==set_error_handler()==
+
+- 函数来托管错误处理程序，可自行定制错误的处理流程。
+- 如果此函数之前的代码发生错误，那么不会调用我们自定义的处理函数，因为还未注册
+- 设置此函数后 error_reporting() 将会失效
+- 以下级别的错误不能由用户定义的函数来处理： E_ERROR、 E_PARSE、 E_CORE_ERROR、 E_CORE_WARNING、 E_COMPILE_ERROR、 E_COMPILE_WARNING 该函数只能捕捉我们的 部分 Warning 和 Note 级别的错误
+
+
+
+==set_exception_handler()==
+
+- 用于没有被捕获的异常处理
+
+
+
+==register_shutdown_function()==
+
+- 作用：注册一个会在php中止时执行的函数
+- 捕获PHP的错误：Fatal Error、Parse Error等，这个方法是PHP脚本执行结束前最后一个调用的函数，比如脚本错误、die()、exit、异常、正常结束都会调用，
+- 如果拿来用错误处理的时候，需要配合`error_get_last()` 它能获取最后发生的错误。
+
+```php
+// 举例:
+register_shutdown_function('shutdown');
+
+function shutdown()
+{
+    if ($error = error_get_last()) {
+        var_dump($error);
+    }
+}
+$name   //没写 ; 号
+
+// Parse error: syntax error, unexpected ';' in /app/swoole/errorDemo.php on line 34
+```
+
+
+
+#### 框架的错误处理
+
+在框架中，其代码是通过一个入口文件来加载的。而我们php检测语法错误的时候，只检查我们的 index.php 有没有错误， require 文件中的代码是不会受到检测的。在`Index.php` 文件中通常会定义一些错误异常的处理。当我们代码出错时，那是在 run-time 中检测的错误，我们的框架可以根据我们编写的错误异常自行做出处理。
+
+下面我们举个例子 在 ThinkPHP5中的异常处理
+
+```php
+// [ 应用入口文件 ]  index.php
+namespace think;
+
+// 加载基础文件
+require __DIR__ . '/../thinkphp/base.php';
+
+// 支持事先使用静态方法设置Request对象和Config对象
+
+// 执行应用并响应
+Container::get('app')->run()->send();
+```
+
+在我们的入口文件中，加载了 `base.php` 在这个文件中，TP 定义了自己的异常处理
+
+```php
+// 载入Loader类
+require __DIR__ . '/library/think/Loader.php';
+
+// 注册自动加载
+Loader::register();
+
+// 注册错误和异常处理机制
+Error::register();
+
+// 实现日志接口
+if (interface_exists('Psr\Log\LoggerInterface')) {
+   //doSomething
+}
+
+// 注册类库别名
+Loader::addClassAlias([
+   //doSomething
+]);
+/**
+     * 注册异常处理
+     * @access public
+     * @return void
+     */
+    public static function register()
+    {
+        error_reporting(E_ALL);
+        set_error_handler([__CLASS__, 'appError']);
+        set_exception_handler([__CLASS__, 'appException']);
+        register_shutdown_function([__CLASS__, 'appShutdown']);
+    }
+```
+
+
+
+### PHP类自动加载
+
+==spl_autoload_register()==
+
+spl_autoload_register()相对于__autoload()的好处是它可以去注册一个__autoload()，并且实现并维护了一个__autoload()队列。原来在一个文件中只能有一个__autoload()方法，但现在，你拥有的是一个队列。
+
+这样，你就不需要将所有加载代码都写在一个__autoload()方法中，而是可以使用多个spl_autoload_register()去单独进行每个类的加载处理。
+
+```php
+spl_autoload_register(function($name){
+    include __DIR__ . '/autoload/' . $name . '.class.php';
+});
+
+$autoA = new AutoA();
+var_dump($autoA);
 ```
 
 

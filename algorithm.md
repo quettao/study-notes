@@ -7,11 +7,81 @@
 总结
 前序：根左右；中序：左根右；后序：左右根； 
 
+#### 首先给出二叉树节点类
+
+```php
+class TreeNode {
+    public $val;
+    //左子树
+    public  $left;
+    //右子树
+    public 	$right;
+    //构造方法
+    function __construct($x) {
+       $this->val = $x;
+    }
+}
+```
+
+
+
 #### 1. 前序遍历
 
 ​	首先访问根节点，然后遍历左子树，最后遍历右子树
 
 ![1631025507913](algorithm.assets/1631025507913.png)
+
+##### 递归实现前序遍历
+
+先输出节点的值，再递归遍历左右子树
+
+```php
+public function recursionTree($tree) {
+  	// 判断节点是否为空
+  	if ($root != null) {
+         	echo $tree->val . ' '; // 输出结果
+      		recursionTree($tree->left); //遍历 左节点b
+      		recursionTree($tree->right); // 右节点遍历
+    }
+}
+```
+
+##### 非递归前序遍历
+
+因为要在遍历完节点的左子树后接着遍历节点的右子树，为了能找到该节点，需要使用**栈**来进行暂存。中序和后序也都涉及到回溯，所以都需要用到**栈**。
+
+##### ![img](algorithm.assets/webp-20211102230743124)
+
+```php
+public function preorderTree($tree) {
+  	// 定义一个暂时存放节点的数组，模仿栈
+  	$arr = [];
+  	// 新建游标节点为跟节点
+ 		$node = $tree;
+  	// 当遍历最后一个节点的时候，无论它的左右子树都为空，并且存放节点的数组也为空
+  	// 所以，只要不同时满足这两点，都需要进入循环
+  	while ($node != null || !empty($arr)) {
+      	// 当前节点非空，输出值
+      	// 由于遍历顺序得知，需要一直往左走
+      	while ($node != null) {
+          	echo $node->val . " ";
+          	// 为了之后找到该节点的右子树，暂存该节点
+          	array_push($arr, $node);
+          	$node = $node->left;
+        }
+      
+      	// 一直到左子树为空，则开始遍历右子树
+      	// 如果数组为空，就不需要在考虑
+      	// 弹出数组(模仿的栈)头部元素，将游标等于改节点的右子树
+      	if (!empty($arr)) {
+          	$node = array_pop($arr);
+          	$node = $node->right;
+        }
+    }
+}
+```
+
+
 
 #### 2. 中序遍历
 
@@ -19,11 +89,151 @@
 
 ![1631025609029](algorithm.assets/1631025609029.png)
 
+##### 递归实现中序遍历
+
+```php
+public function recursionMiddleTree($tree) {
+  	if ($tree != null) {
+      		recursionMiddleTree($tree->left)
+         	echo $tree->val . ' ';
+      		recrusionMiddleTree($tree->right);
+    }
+}
+```
+
+##### 非递归实现中序遍历
+
+```php
+public function recursionMiddleTree($tree) {
+  	// 定义一个数组，模仿实现栈
+  	$arr = [];
+  	// 先建一个游标指向跟节点
+  	$node = $tree;
+  	// 当节点不为空，或者栈数组不为空时，继续遍历
+  	while ($node != null || !empty($arr)) {
+      	// 先遍历左子树，将其放到栈数组中，直到其为空
+      	while ($node != null) {
+          	// 将当前节点放入到栈数组中，方便之后遍历右子树
+          	array_push($arr, $node);
+          	$node = $node->left;
+        }
+      
+      	// 遍历右子树
+      	if (!empty($node)) {
+          	// 出栈
+          	$node = array_pop($arr);
+          	echo $node->val . ' ';
+          	$node = $node->right;
+        }
+    }
+}
+```
+
+
+
+
+
 #### 3. 后序遍历
 
  先遍历左子树，然后遍历右子树，最后访问树的根节点。 
 
 ![1631025757239](algorithm.assets/1631025757239.png)
+
+##### 递归实现后序遍历
+
+```php
+public function recursionTree($tree) {
+  	if ($tree != null) {
+      	recursionTree($tree->left);
+      	recursionTree($tree->right);
+      	echo $tree->val . ' ';
+    }
+}
+```
+
+##### 非递归实现后序遍历
+
+后续遍历和先序、中序遍历不太一样。
+
+后序遍历在决定是否可以输出当前节点的值的时候，需要考虑其左右子树是否都已经遍历完成。
+
+所以需要设置一个**lastVisit游标**。
+
+若lastVisit等于当前考查节点的右子树，表示该节点的左右子树都已经遍历完成，则可以输出当前节点。
+
+并把lastVisit节点设置成当前节点，将当前游标节点node设置为空，下一轮就可以访问栈顶元素。
+
+**否者，需要接着考虑右子树，node = node.right。**
+
+以下考虑后序遍历中的三种情况：
+
+![img](algorithm.assets/webp-20211102230839309)
+
+​																										
+
+如上图所示，从节点1开始考查直到节点4的左子树为空。
+
+注：此时的游标节点node = 4.left == null。
+
+此时需要从栈中**查看 array**栈顶元素。
+
+发现节点4的右子树非空，需要接着考查右子树，4不能输出，node = node.right。
+
+
+
+![img](algorithm.assets/webp-20211102230946328)
+
+
+
+如上图所示，考查到节点7(7.left == null，7是从栈中弹出)，其左右子树都为空，可以直接输出7。
+
+此时需要把lastVisit设置成节点7，并把游标节点node设置成null，下一轮循环的时候会考查栈中的节点6。
+
+
+
+![img](algorithm.assets/webp-20211102231059825)
+
+如上图所示，考查完节点8之后(lastVisit == 节点8)，将游标节点node赋值为栈顶元素6，节点6的右子树正好等于节点8。表示节点6的左右子树都已经遍历完成，直接输出6。
+
+此时，可以将节点直接从栈中弹出Pop()，之前用的只是array[0]。
+
+将游标节点node设置成null。
+
+```php
+public function postorderTree($tree) {
+  	// 创建一个栈数组，用于存放节点信息
+  	$arr = [];
+  	// 游标节点指向跟节点
+  	$node = $tree;
+  	// 后序遍历在决定是否可以输出当前节点的值的时候，需要考虑其左右子树是否都已经遍历完成。所以需要设置一个lastVisit游标。
+  	$lastVisit = $tree;
+  	
+  	while ($node != null || !empty($arr)) {
+      	// 左子树遍历,并将节点存入栈数组
+      	while ($node != null) {
+          	array_push($arr, $node);
+          	$node = $node->left;
+        }
+      
+      	// 查看当前栈顶元素
+      	$node = $arr[0];
+      	
+      	// 如果其右子树也为空，或者右子树已经访问
+      	// 则可以输出当前节点的值
+      	if ($node->right == null || $node->right = $lastVisit) {
+          	echo $node->val . " ";
+          	$node = array_pop($arr);
+          	$lastVisit = $node;
+          	$node = null;
+        } else {
+          	// 否则，继续遍历右子树
+          	$node = $node->right;
+        }
+    }
+}
+```
+
+
 
 #### 二叉树的前序遍历
 
@@ -1230,6 +1440,175 @@ function addBinary($a, $b) {
         $return = ($sum & 1) . $return;
     }
     return $return;
+}
+```
+
+
+
+
+
+### 回文链表
+
+请判断一个链表是否为回文链表。
+
+**示例 1:**
+
+```php
+输入: 1->2
+输出: false
+```
+
+**示例 2:**
+
+```php
+输入: 1->2->2->1
+输出: true
+```
+
+**解析：回文即正反序都一样，所以只要找出中间节点，然后翻转后面部分的链表，再一一进行比较**
+
+**解法：**
+
+**1.快慢指针找出中间节点，快指针每次走两个，慢指针走一格**
+
+**2.翻转后边部分**
+
+**3.一一比较，得出结果**
+
+```php
+// 链表节点类
+class Node {
+  public $data;
+  public $next = null;
+  
+  public function __construct($data = null, $next = null) {
+    	$this->data = $data;
+    	$this->next = $next;
+  }
+}
+
+class Solution {
+  	// 判断是否是回文
+  	function isPalindrome($head) {
+      	// 假头节点
+      	$dummyHead = new Node();
+      	// 将头节点指向目标链表
+      	$dummyHead->next = $head;
+      	
+      	// 快慢指针取中间位置
+      	$centerNode = $doubleNode = $dummyHead;
+      	while ($doubleNode->next) {
+          	$centerNode = $centerNode->next;
+          	$doubleNode = $doubleNode->next->next;
+        }
+      
+      	// 反转后边部分
+      	$preNode = null; // 前节点
+      	$curNode = $centerNode->next; // 后部分的第一个节点
+      	while ($curNode) {
+          	$nextNode = $curNode->next; 
+          	$curNode->next = $preNode;
+          	$preNode = $curNode;
+          	$curNode = $nextNode;
+        }
+          
+      	// 一一比较
+      $curNode = $dummyHead->next;
+      // 遍历结束，￥preNode指向反转后，后面部分的第一个节点
+      while ($curNode && $preNode) {
+        	if ($curNode->val != $preNode->val) {
+            	return false;
+          }
+        	$curNode = $curNode->next;
+        	$preNode = $preNode->next;
+      }
+    	return true;
+    }
+}
+```
+
+
+
+### 重排链表
+
+给定一个单链表 *L*：*L*0→L1→…→Ln-1→Ln ，
+将其重新排列后变为： *L*0→Ln→L1→Ln-1→L2→Ln-2→…
+
+你不能只是单纯的改变节点内部的值，而是需要实际的进行节点交换。
+
+**示例 1:**   给定链表 1->2->3->4, 重新排列为 1->4->2->3.
+
+**示例 2:**   给定链表 1->2->3->4->5, 重新排列为 1->5->2->4->3.
+
+**解析：解法与234.回文链表类似，区别：这道题不是要比较，而是进行重新连接**
+
+**解法：**
+
+**1.快慢指针找出中间节点，快指针每次走两个，慢指针走一格**
+
+**2.翻转后边部分，区分出两条单链表**
+
+**3.一一链接，得出结果**
+
+```php
+// 链表节点类
+class Node {
+  public $data;
+  public $next = null;
+  
+  public function __construct($data = null, $next = null) {
+    	$this->data = $data;
+    	$this->next = $next;
+  }
+}
+
+class Solution
+{
+  	function reorderList($head) {
+      	$dummyHead = new Node();
+      	$dummyHead->next = $head;
+      	
+      	// 快慢指针取中间位置
+      	$centerNode = $doubleNode = $dummyHead;
+      	while ($doubleNode->next) {
+          	$centerNode = $centerNode->next;
+          	$doubleNode = $doubleNode->next->next;
+        }
+      
+      	// 反转链表
+      	$preNode = null;
+      	$curNode = $centerNode-next;
+      	while ($curNode) {
+          	$nextNode = $curNode->next;
+          	$curNode->next = $pr$eNode;
+          	$preNode = $curNode;
+          	$curNode = $nextNode;
+        }
+      
+      	/**
+      		*	将前部分的链表封尾，就完成构建两条链表
+      		* head -> 1 -> 2 -> 3 -> end
+      		* head -> 5 -> 4 -> end
+      		*/
+      	$centerNode->next = null;
+      	// 两两合并，初始化两个链表的头部
+      	$curNode = $dummyHead->next;
+      	$revNode = $preNode;
+      	while ($revVode) {
+          	// 保存下一节点
+          	$curNextNode = $curNode->next;
+          	$revNextNode = $revNode->next;
+          
+          	// 交换节点
+          	$curNode->next = $revNode;
+          	$revNode->next = $cruNextNode;
+          	
+          	// 重新定义节点
+          	$curNode = $curNextNode;
+          	$revNode = $revNextNode;
+        }
+      return $dummyHead->next;
+    }
 }
 ```
 
