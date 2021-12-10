@@ -3527,6 +3527,182 @@ snowflake是twitter开源的分布式ID生成算法，其**核心思想**是：�
 
 
 
+### 22. SSP广告引擎
+
+SSP（全称：Sell-Side Platform）是一个媒体服务平台，该平台通过人群定向技术，智能的管理媒体广告位库存、优化广告的投放，助网络媒体实现其广告资源优化，提高其广告资源价值，达到帮助媒体提高收益的目的。
+
+大白话就是： 各种端（app端）找SSP要广告， SSP选出一批广告， 并告诉这些端，按照某些样式展示。SSP负责如何去选广告， 以及相应的样式是什么样子。SSP不断优化选择广告和确定样式的策略，让各个产品能赚到更多的钱。
+
+
+
+一个好的SSP系统应该具备那些能力？ 我总结了五点，列在下面：
+
+1. **灵活扩展能力**
+
+   ​		快速接入各种广告源
+
+   ​		快速接入各个产品
+
+   ​		快速验证广告的不同样式
+
+   ​		快速调整广告页面布局
+
+   ​		快速调整广告策略
+
+2. **高性能、高并发能力**
+
+3. **高效发布和在线灰度能力**
+
+4. **快速调试定位错误能力**
+
+5. **强大的数据处理和分析能力**
+
+   - 精准的用户画像刻画
+   - 准确的广告推荐
+   - 分钟级数据监控
+   - 支持海量数据细粒度的多维数据查询
+
+
+
+##### SSP系统架构
+
+SSP作为一个大型的业务系统， 系统结构还是比较复杂的，架构上可以分为以下==六层==：产品层、接口层、业务中间层、微服务层、数据处理层、数据存储层。分层系统架构图见图2-1， 详细架构图见图2-2
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=.jpeg)
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_02](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101214512417.jpeg)
+
+##### Flexible and Scaling （灵活扩展性）
+
+系统灵活扩展能力主要体现在业务中间层，从大到小我们分了四个层次来为系统提供足够的灵活扩展性， 分别是架构层、业务层、广告控制层、广告展示层。 我们抽象出四个概念用来对应，Micro Service对应架构层， Topology Organizer对应的是业务层， Rule Manage System 对应的是广告控制层， Template Manage System对应的广告展示层。
+
+###### Micro Service
+
+micro service 翻译过来是微服务， 与微服务对应的是单体式架构（传统方式），单体式架构特点是所有功能打包在一起，基本没有外部依赖，优点是开发管理简单；而微服务架构整个系统由多个子服务组成，各个服务功能独立，服务之间通过消息传递来耦合，最大优点是系统耦合性低，有非常好的扩展性，架构示意图见 图3.1-1 和 图3.1-2。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_03](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101214648659.jpeg)
+
+从第二章的SSP系统架构图上可以看到， SSP是一个非常复杂的系统， 并且SSP有个特点就是各个子服务（各个DSP， 用户画像，红包等）之间几乎没有什么关系， 如果想要快速的接入一个广告源，快速的上线一个产品，具有非常灵活的DSP上下线规则， 那么微服务架构是我们唯一的选择。
+
+###### Topology Organizer （based DAG Algorithm）
+
+系统架构层我们采用了微服务解决了独立子服务接入的灵活性，那么业务逻辑的多变组合如何来高效解决呢？ 在Topoplogy Organizer 框架中我们给出了比较好的一个解决方案。该框架包含DAG, topology, stage, context四个概念，我们把业务拆解成一个功能单元的组合体， 每个功能单元叫做stage， DAG代表了stage 的执行逻辑图，topology用来控制stage的执行先后顺序，context用来做stage之间的数据交换，这个结构只有数据耦合，具备并行操作的基础（这在migo架构中会详细说）。不同业务可以共用stage模块代码，大大减少了代码的重复开发量，提高了开发效率。示意图如下：
+
+
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_04](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101214823495.jpeg)
+
+
+
+图中左右两个业务的DAG表示图，可见初始化规则库、请求解析、用户画像服务、过滤服务、返回广告等stage是可以共用的，业务可以由这些stage灵活组合而成。
+
+###### DAG
+
+DAG（有向无环图）， 如图3.2-1所示， 业务可以组织成DAG，这种图结构保证了功能模块的执行顺序， 定义好一个DAG也就定义好了一个业务的流程。
+
+
+
+###### **topology**
+
+topology算法用来实现DAG的功能块执行顺序，保证功能块的次序不会被颠倒，如图3.2-1的左图， 通过topology会被分解成初始化规则库-> 请求解析->用户画像->点睛DSP（或自运营DSP、MAX DSP， 以上可以通过异步技术手段并行化处理）-＞过滤服务 -＞重排服务 -＞返回广告
+
+
+
+###### stage
+
+我们把每个功能模块称为stage, 负责完成某一特定功能。stage模块可以逐步沉淀出很多公共模块，为代码共享，加快开发提供了很好的基础。比如各类DSP stage 可以抽象出公共DSP stage， 公共DSP stage负责完成和下游DSP的RPC交互操作，派生的DSP stage 只用改写自己的各种参数即可。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_05](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215054989.jpeg)
+
+###### context
+
+context 是一种表示上下文信息的数据结构，在Topology Organizer 框架中起到stage之间传递数据的作用，正式由于这个结构的提出，才使得stage之间逻辑解耦，交互完全变成数据依赖，相当于贯穿一个业务的数据总线。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_06](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215122928.jpeg)
+
+
+
+######  rule engine
+
+ 什么是rule ，我们可以认为rule是条件到输出的一个函数映射，形式描述如下：
+
+    Output = R（condition,condition,....） ； Output为输出， R 为rule映射关系，condtion_list 是条件， 为输入参数。
+
+ 
+
+
+我们发现，上节描述的频次控制功能可以描述成一个规则 Output = R（product，ad_control,model），展开成如下两个具体
+
+规则 ：
+
+、![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_07](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215218381.jpeg)
+
+通过添加上面两个规则，我们不用修改代码即可实现对频次控制策略的运营，如果卫士广告频次想改成15次， 运营改这个规则就可以了，而不用去改引擎代码，避免了引擎测试、上线、重启后续一系列麻烦的事情。
+
+rule table ： 许多的rule 构成一张规则表， 如果我们想查找符合某种条件的输出是什么， 查这个规则表即可， 如果我们想灵活的控制某一数据项， 向这个规则表插入一条rule即可。图3.3-1 展示了一个规则表实例。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_08](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215306045.jpeg)
+
+rule engine：对rule table 进行管理，组织成特定数据结构（可以是上图所示的表的结构， 也可以是其他更加复杂的数据结构），提供插入，删除，查找等操作。
+
+###### quick match rule
+
+上节我们谈到rule engine 可以不同的组织方式，不同的数据结构带来的查询性能会有很大的区别，SSP引擎由于请求量非常大，而且每个请求都会对rule engine进行规则查询，那么如何快速的进行rule match对SSP的性能影响会非常的大。
+
+
+
+###### Template Manage System
+
+SSP系统有一项很重要的功能就是管理广告样式以及管理广告展示布局，例子（见图3.4-1 和 图3.4-2）可以形象的展示不同的广告样式和广告布局。 我们的产品往往不断调整广告的样式，如三图变长图；或者增加新的广告样式如视频广告，轮播广告；又或者针对不同产品的不同功能页面会尝试不同的广告组合来布局。 如何支持广告的灵活性运营， 对SSP系统提出非常高的要求。我们使用两个机制来很好的解决了这个问题，base template 机制，polymorphism and combination 机制 。下面我们来具体的介绍这两个机制，以及这两种机制如何结合起来支持广告运营的灵活性。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_09](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215443792.jpeg)
+
+###### base template
+
+base template 我们叫做基础模版，用来解决广告样式的多样性。在处理广告展示的过程中，如果每一个广告都写代码去针对性处理，广告千变万化，这个工作量将是非常复杂的。如果仔细的研究一下，会发现虽然广告千变万化（广告素材、广告标题等）但是广告的样式种类确可以归成很少的几十类，最多几百类。 我们把广告剥离成静态和动态两部分， 静态的是广告样式， 种类只有数十种，这样管理起来就非常的简单， 只需要运营这几十个静态模版类即可；动态的是广告的素材啊，标题啊，跳转连接啊，点击动作啊， 这些可以通过下一节的polymorphism机制进行实例化， 从而实现动态部分的灵活运营化。
+
+
+
+###### polymorphism and combination
+
+polymorphism 叫做多态实例化机制， combination叫做组合机制， 这两个机制结合起来用来解决页面广告布局的灵活性。
+
+base template 可以决定广告的样式，从基本模版库中选中样式模版后，通过polymorphism可以对该模版进行实例化，比如两个同样的长图模版，填入不同的素材链接地址，标题，点击动作可以形成两个广告实例。polymorphism的灵活性如何实现？通过3.3节的规则管理系统可以动态的配置基础样式模版所需要的属性信息， 这样就可以完成polymorphism的实例化，并且可以交付运营来配置管理（实例化形象例子可以参考图3.4-2）。
+
+有了实例化的模版，我们的工作完成了一半， 产品所需要的不是单一的一个广告，产品端的页面是一系列广告的展示， 但是产品的广告页面布局会不断调整的，不能每个页面写死由那些固定模版组成。 我们通过combination机制（组合机制）很好的解决页面布局的灵活性， 也就是通过3.3节的规则管理系统由运营来动态组合样式实例来形成页面布局（布局形象化例子可以参考图3.4-2）。base template，polymorphism, combination机制结合起来形成页面布局见图3.4-3。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_11](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215653605.jpeg)
+
+##### 高性能、高并发引擎架构
+
+SSP 每天请求量超过30亿，支持这么大的流量需要一个非常出色的高性能http引擎。http引擎框架大多归为两类，一类是多进程框架，一类是多线程框架， SSP的演进过程中也分别使用过这两类框架，一个是360大流程云引擎部门开发的cloudUcs， 一个是核心安全部门开发的trident，下面我们来详细介绍一下，最后我们来谈谈基于go协程机制的新的http引擎框架。
+
+###### 多进程框架（cloudUcs）
+
+cloudUcs 是大流程云引擎部门开发的， 是一个比较优秀的高性能http引擎，目前搜索一级引擎还是采用这个框架，框架图见图4.1-1。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_12](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101215801017.jpeg)
+
+
+
+###### 多线程框架（trident）
+
+trident是大流程云查杀组开发的，现属于核心安全部门， 也是一个比较优秀的高性能http引擎，目前云查杀引擎是采用这个框架，SSP也是采用这个框架，框架图见4.2-1。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_13](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101220012630.jpeg)
+
+
+
+###### 微服务框架（migo）
+
+migo是我们团队用go语言重新开发的http引擎框架， 充分挖掘利用了go的协程机制，拥有非常强大的性能。由于多线程模型在发生线程调度的时候代价很高，不能充分利用cpu的时间片，所以人们又提出协程概念，相当于在线程的工作时间片上又切成很多小段，分给协程来工作，有统一协程调度器来调度协程，而不会触发线程的调度，得以充分的利用线程的工作时间片。go 语言在语言层面对协程进行了支持，所以简单易上手，目前在高性能、高并发领域是非常火热的编程语言。所以我们采用go语言重新打造了一个新的微服务引擎框架migo。migo本身我们设计成一个通用的微服务框架，也具备SSP的很多特点，也具有DAG，topology, stage, context，micro service这些组件（组件介绍见第三章）。与C++或者php语言相比，DAG，topology, stage反而更好的把go的协程机制发挥出来，提供充分的并行性。 migo的系统框架图见图4.3-1和图4.3-2。
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_14](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101220117794.jpeg)
+
+![如何打造高质量的SSP广告引擎(内部干货分享)_SSP_15](php_实践.assets/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_100,g_se,x_10,y_10,shadow_90,type_ZmFuZ3poZW5naGVpdGk=-20211101220135003.jpeg)
+
+
+
 ## Mysql 实践
 
 ### 1. 数据库软件架构设计些什么
