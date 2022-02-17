@@ -655,10 +655,6 @@ read view 是事务进行快照读操作的时候生产的读视图，在该事�
 
 先来看事务 A，此时的m_ids 为：[4、5、6]，min_trx_id 为：4，max_trx_id 为 7(下图第三行为max_trx_id)，creator_trx_id 为 4。
 
-
-
-先来看事务 A，此时的m_ids 为：[4、5、6]，min_trx_id 为：4，max_trx_id 为 7(下图第三行为max_trx_id)，creator_trx_id 为 4。
-
 ![img](mysql.assets/v2-1d0ba67b0ed7d19961345ecdcf4bc7b5_1440w.jpg)
 
 事务 A 首先执行了一次查询操作，他此时是这么执行的：
@@ -800,7 +796,7 @@ threadpool在使用中存在的问题：
 char_length
 	1.计算单位：字符
 	2. 不管汉字还是数字或者字母都算一个字符
-length()
+	length()
 	1.计算单位：字节
 	2.utf8编码：一个汉字三个字节，一个数字或字母一个字节
 	3.gbk编码：一个汉字两个字节，一个数字或字母一个字节
@@ -1439,7 +1435,7 @@ MySQL里同一个数据表里的索引总数限制为16个
 
 ######  mysql索引结构有哪些？各自的优劣是什么？
 
-​	mysql中使用较多的索引有==hash索引==和==B+数索引==，innoDB的索引实现为B+数，memory存储引擎为hash索引
+​	mysql中使用较多的索引有==hash索引==和==B+数索引==，innoDB的索引实现为B+树，memory存储引擎为hash索引
 
 ​	hash索引就是采用一定的哈希算法，把键值换算成新的哈希值。检索时只需一次哈希算法即可立刻定位到相应的位置。
 

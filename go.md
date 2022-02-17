@@ -2,9 +2,95 @@
 
 #### 基础问题
 
-- go语言slice和map底层实现原理
+- **go语言slice和map底层实现原理**
 
-- map底层实现原理：
+  ```go
+  // 切片即动态数组，可以动态扩容改变数组的容量. golang 的 slice 底层结构如下所示，它是一个结构体，里面包含了指向数组的地址，并通过 len、cap 保存数组的元素数、容量:
+  type slice struct {
+      array unsafe.Pointer // 指向数组的指针
+      len   int // 切片中元素的数量
+      cap   int // array 数组的总容量
+  }
+  ```
+
+  **切片拷贝：**
+
+  考虑到切片 slice 的结构，对于切片直接用 = 拷贝，实际上是浅拷贝，只是改变了指针的指向，并没有改变数组中元素的值. 对于深度拷贝的需求，可以借助 copy 内置函数完成. 两种拷贝的方式如下:
+
+  - 深度拷贝: copy(sliceA, sliceB)
+  - 浅拷贝: sliceA = sliceB
+
+  切片之间的复制会拷贝数组指针、cap、len 值，但数组指针指向的是同一个地址. 如果想做深度拷贝，即将指针指向的数组内容而不是指针值进行拷贝. 可以使用内置的 copy 函数进行切片拷贝. 如下所示，使用 copy 进行复制，会改变 s2 地址的内存内的数组值.
+
+  ```go
+  var s1 = []int{1, 2}        // 初始化一个切片
+  var s2 = make([]int, 2)     // 初始化一个空的切片，cap为2
+  copy(s2, s1)                // 将s1拷贝给s2
+  s2[0] = 99                  // 改变s2[0]
+  fmt.Println(s1[0])          // 打印 1 而不是 99
+  ```
+
+  **切片 slice 函数传递**
+
+  在切片进行复制时，会将切片的值（指针、cap、len)复制了一份. 在函数内部可以改变原切片的值.
+
+  但是，当涉及到 append 触发扩容时，原来的指针指向的地址会发生变化，之后再对数组值进行更改，原切片将不受影响.
+
+  ```go
+  //定义一个函数，给切片添加一个元素
+  func addOne(s []int) {
+      s[0] = 4  // 可以改变原切片值
+      s = append(s, 1)  // 扩容后分配了新的地址，原切片将不再受影响
+      s[0] = 8 
+  }
+  var s1 = []int{2}   // 初始化一个切片
+  addOne(s1)          // 调用函数添加一个切片
+  fmt.Println(s1)     // 输出一个值 [4]
+  ```
+
+**切片 slice 的扩容**
+
+当使用 append(slice,data) 时候，Golang 会检查底层的数组的长度是否已经不够，如果长度不够，Golang 则会新建一个数组，把原数组的数据拷贝过去，再将 slice 中的指向数组的指针指向新的数组。
+
+其中新数组的长度一般是老数组的俩倍，当然，如果一直是俩倍增加，那也会极大的浪费内存. 所以在老数组长度大于 1024 时候，将每次按照不小于 25% 的涨幅扩容.
+
+slice 增加长度的源码在 src/runtime/slice.go 的 growslice 函数中
+
+
+
+- **map底层实现原理：**
+
+map 字典是 golang 中高级类型之一，它提供键值对形式的存储. 它也是引用类型，参数传递时其内部的指针被复制，指向的还是同一个内存地址. 当对赋值后的左值进行修改时，是会影响到原 map 值的.
+
+map 的底层本质上是实现散列表，它解决碰撞的方式是拉链法. map 在进行扩容时不会立即替换原内存，而是慢慢的通过 GC 方式释放.
+
+**hmap** 结构
+
+以下是 map 的底层结构，其源码位于 src/runtime/map.go 中，结构体主要是 hmap .
+
+```go
+复制代码
+// A header for a Go map.
+type hmap struct {
+  // Note: the format of the hmap is also encoded in cmd/compile/internal/gc/reflect.go.
+  // Make sure this stays in sync with the compiler's definition.
+  count     int // # live cells == size of map.  Must be first (used by len() builtin)
+  flags     uint8
+  B         uint8  // log_2 of # of buckets (can hold up to loadFactor * 2^B items)
+  noverflow uint16 // approximate number of overflow buckets; see incrnoverflow for details
+  hash0     uint32 // hash seed
+
+  buckets    unsafe.Pointer // array of 2^B Buckets. may be nil if count==0.
+  oldbuckets unsafe.Pointer // previous bucket array of half the size, non-nil only when growing
+  nevacuate  uintptr        // progress counter for evacuation (buckets less than this have been evacuated)
+
+  extra *mapextra // optional fields
+}
+```
+
+上述代码中 buckets、oldbuckets 是指向存储键值的内存地址, 其中 oldbuckets 用于在扩容时候，指向旧的 bucket 地址，再下次访问时不断的将 oldbuckets 值转移到 buckets 中. oldbuckets 并不直接释放内存，而是通过不引用，交由 gc 释放内存.
+
+
 
 - slice底层实现原理：
 
@@ -40,7 +126,13 @@
 因为是强类型语言，所以不同类型的结构不能作比较，但是同一类型的实例值是可以比较的，实例不可以比较，因为是指针类型
 ```
 
+### 值传递和指针传递有什么区别
 
+值传递：会创建一个新的副本并将其传递给所调用函数或方法 指针传递：将创建相同内存地址的新副本
+
+需要改变传入参数本身的时候用指针传递，否则值传递
+
+另外，如果函数内部返回指针，会发生内存逃逸
 
 #### 使用值为 nil 的 slice、map会发生啥
 
@@ -466,7 +558,11 @@ make 的作用是为 slice，map 或 chan 初始化并返回引用 (T)。make �
 
 make(T, args) 函数的目的与 new(T) 不同。它仅仅用于创建 Slice, Map 和 Channel，并且返回类型是 T（不是T*）的一个初始化的（不是零值）的实例。
 
+ 区别
 
+new 的参数要求传入一个类型，而不是一个值，它会申请该类型的内存大小空间，并初始化为对应的零值，返回该指向类型空间的一个指针
+
+make 也用于内存分配，但它只用于引用对象 slice、map、channel的内存创建，返回的类型是类型本身
 
 #### Printf()、Sprintf()、Fprintf()函数的区别用法是什么
 
@@ -698,3 +794,665 @@ func main() {
 
 golang 的 select 就是监听 IO 操作，当 IO 操作发生时，触发相应的动作每个case语句里必须是一个IO操作，确切的说，应该是一个面向channel的IO操作。
 
+#### 内存管理
+
+Golang运行时的内存分配算法主要源自 Google 为 C 语言开发的`TCMalloc算法`，全称`Thread-Caching Malloc`。核心思想就是把内存分为多级管理，从而降低锁的粒度。它将可用的堆内存采用二级分配的方式进行管理：每个线程都会自行维护一个独立的内存池，进行内存分配时优先从该内存池中分配，当内存池不足时才会向全局内存池申请，以避免不同线程对全局内存池的频繁竞争。
+
+- Go在程序启动时，会向操作系统申请一大块内存，之后自行管理。
+- Go内存管理的基本单元是mspan，它由若干个页组成，每种mspan可以分配特定大小的object。
+- mcache, mcentral, mheap是Go内存管理的三大组件，层层递进。mcache管理线程在本地缓存的mspan；mcentral管理全局的mspan供所有线程使用；mheap管理Go的所有动态分配内存。
+- 极小对象会分配在一个object中，以节省资源，使用tiny分配器分配内存；一般小对象通过mspan分配内存；大对象则直接由mheap分配内存。
+
+#### 线程有几种模型
+
+3种，一对一模型，多对一模型，多对多模型
+
+go线程模型：属于多对多线程模型。其模型如下：
+
+![img](go.assets/format,png.png)
+
+go线程模型包含三个概念：内核线程(M)，goroutine(G),逻辑处理器（P）,在Go中每个逻辑处理器(P)会绑定到某一个内核线程上,每个逻辑处理器（P）内有一个本地队列，用来存放go运行时分配的goroutine。在上面介绍的多对多线程模型中是操作系统调度线程在物理CPU上运行，在Go中则是Go的运行时调度goroutine在逻辑处理器（P）上运行。
+
+调度过程如下
+
+全局队列：存放等待执行的G
+P的本地队列：当创建一个新的G之后优先加入本地队列，如果本地队列满了，会将本地队列的一半G移动到全局队列里面，本地队列保存G数量默认不超过256个
+P的列表：在初始化的时候根据GOMAXPROCS来设置
+M：线程想运行任务就得获取 P，从 P 的本地队列获取 G，P 队列为空时，M 也会尝试从全局队列拿一批 G 放到 P 的本地队列，或从其他 P 的本地队列偷一半放到自己 P 的本地队列。M 运行 G，G 执行之后，M 会从 P 获取下一个 G，不断重复下去。
+
+在go中存在两级调度，一级是操作系统的调度系统，该调度系统调度逻辑处理器占用cpu时间片运行，一级是go的运行时调度系统，该调度系统调度某个goroutine在逻辑处理上运行。
+
+使用go语句创建一个goroutine后，创建的goroutine会被放入go运行时调度器的全局运行队列中，然后go运行时调度器会把全局队列中的goroutine分配给不同的逻辑处理器（P），分配的goroutine会被放到逻辑处理器（P)的本地队列中，当本地队列中某个goroutine就绪后待分配到时间片后就可以在逻辑处理器上运行了，如上图goroutine1当前正在占用逻辑处理器1运行。
+
+需要注意的是为了避免某些goroutine出现饥饿现象，被分配到某一个逻辑处理器（P)上的多个goroutine是分时在该逻辑处理器运行的，而不是独占运行直到结束，比如每个goroutine从开始到运行结束需要10分钟，那么当前逻辑处理器下的goroutine1，goroutine2，goroutine3，并不是顺序执行，而是交叉并发运行的。
+
+goroutine内部实现与在多个操作系统线程(Os 线程)之间复用的协程(coroutines)一样。如果一个goroutine阻塞OS线程，例如等待输入，则该OS线程对应的逻辑处理器P中的其他goroutine将迁移到其他OS线程，以便它们可以继续运行:
+
+![img](go.assets/format,png.png)
+
+如上图左侧假设goroutine1在执行文件文件读取操作，则goroutine1会导致内核线程1阻塞，这时候go运行时调度器会把goroutine1所在的逻辑处理器1迁移到其他的内核线程上（这里是内核线程2上），这时候逻辑处理器1上的goroutine2和goroutine3就不会受goroutine1的影响了。等goroutine1文件读取操作完成后goroutine1又会被go运行时调度系统重新放入到逻辑处理器1的本地队列。
+需要注意的是go运行时内核线程(M)的数量默认是10000个，你可以使用runtime/debug包里面的debug.SetMaxThreads(10000)来设置。
+
+默认情况下，Go默认是给每个可用的物理处理器都分配一个逻辑处理器（p）,如果你需要修改逻辑处理器(P)个数可以使用runtime包的runtime.GOMAXPROCS函数设置.
+
+至于goroutine（G）的数量则是由用户程序自己来确定，理论只要内存够大，可以无限制创建。
+
+Goroutine 小结
+
+优点：
+
+1、开销小
+
+POSIX的thread API虽然能够提供丰富的API，例如配置自己的CPU亲和性，申请资源等等，线程在得到了很多与进程相同的控制权的同时，开销也非常的大，在Goroutine中则不需这些额外的开销，所以一个Golang的程序中可以支持10w级别的Goroutine。
+
+每个 goroutine (协程) 默认占用内存远比 Java 、C 的线程少（*goroutine：*2KB ，线程：8MB）
+
+2、调度性能好
+
+在Golang的程序中，操作系统级别的线程调度，通常不会做出合适的调度决策。例如在GC时，内存必须要达到一个一致的状态。在Goroutine机制里，Golang可以控制Goroutine的调度，从而在一个合适的时间进行GC。
+
+在应用层模拟的线程，它避免了上下文切换的额外耗费，兼顾了[多线程](https://so.csdn.net/so/search?q=多线程&spm=1001.2101.3001.7020)的优点。简化了高并发程序的复杂度。
+
+缺点：
+
+协程调度机制无法实现公平调度。
+
+#### 每个线程/协程占用多少内存
+
+*goroutine：*2KB ，线程：2MB
+
+#### gorouitine 什么时候发生阻塞
+
+- channel 在等待网络请求或者数据操作的IO返回的时候会发生阻塞
+- 发生一次系统调用等待返回结果的时候
+- goroutine进行sleep操作的时候
+
+前置知识点: go程序中,任何对系统 API 的调用，都会被 runtime 层拦截来方便调度。
+
+go一共有4种阻塞的情况，并且这些阻塞都是可以被runtime检测到的，runtime检测到阻塞时就可以进行优化处理。
+
+1. blocking syscall (for example opening a file)   // 系统调用
+2. network input   // 网络IO
+3. channel operations // 通道
+4. primitives in the sync package   // 锁
+
+4种阻塞可以分为两类：
+分类1 (对应情况2,3,4): (只G阻塞,M,P可用的，要利用起来)
+1.1 用户代码层面的阻塞(channel,锁), 此时M可以换上其他G继续执行。
+1.2 网络阻塞 (netpoller实现G网络阻塞不会导致M被阻塞，仅阻塞G)。
+分类2 (对应情况1): (G,M都被阻塞,P可用,要利用起来)
+2.1 系统调用(open file)
+
+#### go协程阻塞时如何进行调度？
+
+> 在程序中任何对系统 API 的调用，都会被 runtime 层拦截来方便调度。
+> Goroutine 在 system call 和 channel call 时都可能发生阻塞，但这两种阻塞发生后，处理方式又不一样的。
+> 1.当程序发生 system call，M 会发生阻塞，同时唤起（或创建）一个新的 M 继续执行其他的 G。当MO返回时，它必须尝试取得一个context P来运行goroutine，一般情况下，它会从其他的OS线程那里steal偷一个context过来，如果没有偷到的话，它就把goroutine放在一个global runqueue里，然后自己就去睡大觉了（放入线程缓存里）。Contexts们也会周期性的检查global runqueue，否则global runqueue上的goroutine永远无法执行。
+> 2.当程序发起一个 channel call，程序可能会阻塞，但不会阻塞 M，G 的状态会设置为 waiting，M 继续执行其他的 G。当 G 的调用完成，会有一个可用的 M 继续执行它。
+
+#### go为什么要实现自己的协程调度，而不用系统调度？
+
+1.线程较多时，开销较大。
+2.OS 的调度，程序不可控。而 Go GC 需要停止所有的线程，使内存达到一致状态。
+
+#### GM为啥不行？P有什么作用？
+
+1.每个 P 都有一个队列，用来存正在执行的 G。避免 Global Sched Lock。
+2.每个 M 运行都需要一个 MCache 结构。M Pool 中通常有较多 M，但执行的只有几个，为每个池子中的每个 M 分配一个 MCache 则会形成不必要的浪费，通过把 cache 从 M 移到 P，每个运行的 M 都有关联的 P，这样只有运行的 M 才有自己的 MCache。
+
+#### Goroutine vs OS thread 有什么区别？
+
+其实 goroutine 用到的就是线程池的技术，当 goroutine 需要执行时，会从 thread pool 中选出一个可用的 M 或者新建一个 M。而 thread pool 中如何选取线程，扩建线程，回收线程，Go Scheduler 进行了封装，对程序透明，只管调用就行，从而简化了 thread pool 的使用。
+
+
+
+#### PMG模型中，goroutine有哪些状态
+
+**有9种状态**
+
+- **_Gidle**：刚刚被分配并且还没有被初始化
+- **_Grunnable**：没有执行代码，没有栈的所有权，存储在运行队列中
+- **_Grunning**：可以执行代码，拥有栈的所有权，被赋予了内核线程 M 和处理器 P
+- **_Gsyscall**：正在执行系统调用，拥有栈的所有权，没有执行用户代码，被赋予了内核线程 M 但是不在运行队列上
+- **_Gwaiting**：由于运行时而被阻塞，没有执行用户代码并且不在运行队列上，但是可能存在于 Channel 的等待队列上
+- **_Gdead**：没有被使用，没有执行代码，可能有分配的栈
+- **_Gcopystack**：栈正在被拷贝，没有执行代码，不在运行队列上
+- **_Gpreempted**：由于抢占而被阻塞，没有执行用户代码并且不在运行队列上，等待唤醒
+- **_Gscan**：GC 正在扫描栈空间，没有执行代码，可以与其他状态同时存在
+
+**去抢占 G 的时候，会有一个自旋和非自旋的状态**
+
+自旋锁(Spinlock)是一种广泛运用的底层**同步**机制。自旋锁是一个**互斥**设备，它只有两个值：“锁定”和“解锁”。它通常实现为某个整数值中的某个位。希望获得某个特定锁得代码测试相关的位。如果锁可用，则“锁定”被设置，而代码继续进入**临界区**；相反，如果锁被其他人获得，则代码进入**忙循环**（而不是休眠，这也是自旋锁和一般锁的区别）并重复检查这个锁，直到该锁可用为止，这就是自旋的过程。
+
+#### 如果goroutine一直占用资源怎么办，PMG模型怎么解决这个问题
+
+如果有一个goroutine一直占用资源的话，GMP模型会从正常模式转为饥饿模式，通过信号协作强制处理在最前的 goroutine 去分配使用
+
+#### 如果若干线程中一个线程OOM，会发生什么，如果goroutine呢，项目中出现过OOM吗，怎么解决的？
+
+如果线程发生==OOM==，也就是==内存溢出==，发生OOM的线程会被kill掉，其它线程不受影响。
+
+### Goroutine中内存泄漏的发现与排查
+
+go中的内存泄漏一般都是goroutine泄露，就是goroutine没有被关闭，或者没有添加超时控制，让goroutine一只处于阻塞状态，不能被GC。
+
+### 场景
+
+在Go中内存泄露分为暂时性内存泄露和永久性内存泄露
+
+**暂时性内存泄露**
+
+- 获取长字符串中的一段导致长字符串未释放
+- 获取长slice中的一段导致长slice未释放
+- 在长slice新建slice导致泄漏
+
+string相比切片少了一个容量的cap字段，可以把string当成一个只读的切片类型。获取长string或者切片中的一段内容，由于新生成的对象和老的string或者切片共用一个内存空间，会导致老的string和切片资源暂时得不到释放，造成短暂的内存泄漏
+
+**永久性内存泄露**
+
+- goroutine永久阻塞而导致泄漏
+- time.Ticker未关闭导致泄漏
+- 不正确使用Finalizer导致泄漏
+
+####  项目中的错误处理是怎么解决的
+
+在后台开发中，针对错误处理，有三个维度的问题需要解决：
+
+- 函数内部的错误处理: 这指的是一个函数在执行过程中遇到各种错误时的错误处理。这是一个语言级的问题
+- 函数/模块的错误信息返回: 一个函数在操作错误之后，要怎么将这个错误信息优雅地返回，方便调用方（也要优雅地）处理。这也是一个语言级的问题
+- 服务/系统的错误信息返回: 微服务/系统在处理失败时，如何返回一个友好的错误信息，依然是需要让调用方优雅地理解和处理。这是一个服务级的问题，适用于任何语言
+
+函数内部的错误，遇到错误的时候建议还是老老实实采用这种格式：
+
+```go
+if err := DoSomething(); err != nil {
+	// ...
+}
+```
+
+
+
+#### 如果若干个goroutine，其中有一个pantic,会发生什么
+
+如果某goroutine在某函数/方法F的调用时出现panic，一个被称为"panicking"的过程将被激活。
+
+该过程先会调用函数F的defer函数(如果有的话)，然后依次向上，调用函数F的调用者的defer函数，直至该goroutine的顶层函数。
+
+即启动该goroutine时(go T())的那个函数T，如果函数T有defer函数，那么defer会被调用。
+
+在整个paniking过程的defer调用链中，如果没有使用recover捕获该panic，
+
+那么panicking过程的最后一个环节将会发生：整个程序异常退出(无论发生panic的goroutine是否为main Goroutine)并输出panic相关信息。
+
+#### defer可以捕获到其Goroutine的子goroutine的panic吗 
+
+不能
+
+每个Goroutine都要有recover机制，因为当一个Goroutine抛panic的时候只有自身能够捕捉到其它Goroutine是没有办法捕捉的。如果没有recover机制，整个进程会crash。
+
+recover只能在defer里面生效，如果不是在defer里调用，会直接返回nil。
+
+Goroutine发生panic时，只会调用自身的defer，所以即便主Goroutine里写了recover逻辑，也无法recover。
+
+#### 开发中使用过gin框架吗？怎么做参数效验，中间件使用过吗，怎么使用的？
+
+gin框架使用[http://github.com/go-playground/validator](https://link.zhihu.com/?target=http%3A//github.com/go-playground/validator)进行参数校验 在 struct 结构体添加 binding tag，然后调用 ShouldBing 方法，下面是一个示例
+
+```go
+type SignUpParam struct {
+    Age        uint8  `json:"age" binding:"gte=1,lte=130"`
+    Name       string `json:"name" binding:"required"`
+    Email      string `json:"email" binding:"required,email"`
+    Password   string `json:"password" binding:"required"`
+    RePassword string `json:"re_password" binding:"required,eqfield=Password"`
+}
+
+func main() {
+    r := gin.Default()
+
+    r.POST("/signup", func(c *gin.Context) {
+        var u SignUpParam
+        if err := c.ShouldBind(&u); err != nil {
+            c.JSON(http.StatusOK, gin.H{
+                "msg": err.Error(),
+            })
+            return
+        }
+        // 保存入库等业务逻辑代码...
+
+        c.JSON(http.StatusOK, "success")
+    })
+
+    _ = r.Run(":8999")
+}
+```
+
+##### 中间件使用use方法，Gin的中间件其实就是一个HandlerFunc,那么只要我们自己实现一个HandlerFunc，下面是一个示例
+
+```go
+func costTime() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        //请求前获取当前时间
+        nowTime := time.Now()
+
+        //请求处理
+        c.Next()
+
+        //处理后获取消耗时间
+        costTime := time.Since(nowTime)
+        url := c.Request.URL.String()
+        fmt.Printf("the request URL %s cost %v\n", url, costTime)
+    }
+}
+```
+
+以上我们就实现了一个Gin中间件，比较简单，而且有注释加以说明，这里要注意的是c.Next方法，这个是执行后续中间件请求处理的意思（含没有执行的中间件和我们定义的GET方法处理），这样我们才能获取执行的耗时。也就是在c.Next方法前后分别记录时间，就可以得出耗时。
+
+#### gin的错误处理使用过吗，gin中自定义效验规则知道怎么做吗，自定义效验的返回值呢？
+
+gin 自定义效验规则使用 validator库,binding验证规则，可以自定义函数，然后将函数注册奥验证规则中,自定义效验的返回值
+
+```go
+package common
+import (
+	"github.com/gin-gonic/gin/bining"
+    "github.com/go-paygroun/locales/zh"
+    "github.com/go-playgroun/vaidator/v10"
+    ut "github.com/go-playground/universal-translator"
+)
+
+var trans ut.Translator
+
+// 定义字段名称，此处对应的是你的结构体中binding的字段名称
+var fieldName = map[string]string {
+    "Username": "用户名",
+    "Password": "用户密码",
+    "Avatar": "用户头像",
+}
+
+// 自定义错误返回值
+var myTags = map[string]string {
+    "myvalidate": "必须通过自定义验证方法",
+}
+
+// 自定义错误信息返回格式
+func Translate(err error) string {
+    var result string
+    
+    errors := err.(validator.ValidationErrors)
+    
+    for _, err := range errors {
+        // 判断是否是自定义方法
+        var (
+            tag = err.Tag() // 绑定的验证方法
+            field = err.Field() // 绑定的验证字段
+            mag string
+        )
+        
+        // 自定义错误，使用自定义错误信息返回
+        if val, exist := myTags[tag]; exist {
+            msg = field + val + ";"
+        } else {
+            msg = err.Translate(trans)
+        }
+        
+        if val, exist := fieldName[field]; exist {
+            msg = strings.Replace(msg, field, val, 1)
+        }
+        retuslt += msg
+    }
+    return result
+}
+
+// 这是一个自定义验证方法
+var myvaidate valiator.Func = func(f1 validaor.FieldLevel) bool {
+    val, ok := f1.Fields().Interface().(string) // string当前验证的字段
+    if ok {
+        if val != "gangan" {
+            return false
+        }
+    }
+    return true
+}
+
+func init() {
+    var (
+    	validate *validator.Validate
+        ok bool
+    )
+    // 注册自定义验证方法
+    if validate, ok = binding.Valiator.Engine().(*validator.Validate); ok {
+        validate.RegisterValidation("myvalidate", myvalidate)
+    }
+}
+
+// 使用
+RegisterRequest struct {
+    Username string `json:"username" binding:"required,min=3,max=25,myvalidate"`
+    Password string `json:"password" binding:"required,min=6,max=25"`
+    Avatar string `json:"avatar" binding:"required,url"`
+}
+
+// 调用
+var (
+	err error
+    res *RegisterRequest
+)
+
+res = new(RegisterRequest)
+
+// 进行参数验证
+if err = c.ShouldBindJSON(res); err != nil {
+    // 验证未通过，使用自定义的错误输出方法，获取错误信息
+    core.ResponseError(c, common.Translate(err))
+    return
+}
+```
+
+gin的use可以统一抛出错误
+
+```go
+// 错误处理的结构体
+type Error struct {
+	StatusCode int    `json:"-"`
+	Code       int    `json:"code"`
+	Msg        string `json:"msg"`
+}
+
+var (
+	Success     = NewError(http.StatusOK, 0, "success")
+	ServerError = NewError(http.StatusInternalServerError, 200500, "系统异常，请稍后重试!")
+	NotFound    = NewError(http.StatusNotFound, 200404, http.StatusText(http.StatusNotFound))
+)
+
+func OtherError(message string) *Error {
+	return NewError(http.StatusForbidden, 100403, message)
+}
+
+func (e *Error) Error() string {
+	return e.Msg
+}
+
+func NewError(statusCode, Code int, msg string) *Error {
+	return &Error{
+		StatusCode: statusCode,
+		Code:       Code,
+		Msg:        msg,
+	}
+}
+
+// 定义一个中间件捕获错误
+func ErrHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		if length := len(c.Errors); length > 0 {
+			e := c.Errors[length-1]
+			err := e.Err
+			if err != nil {
+				var Err *Error
+				if e, ok := err.(*Error); ok {
+					Err = e
+				} else if e, ok := err.(error); ok {
+					Err = OtherError(e.Error())
+				} else {
+					Err = ServerError
+				}
+				// 记录一个错误的日志
+				c.JSON(Err.StatusCode, Err)
+				return
+			}
+		}
+
+	}
+}
+
+func main() {
+	r := gin.Default()
+	r.NoMethod(HandleNotFound)
+	r.NoRoute(HandleNotFound)
+	r.Use(ErrHandler()) // 捕获错误
+
+	r.GET("/user", User)
+	r.GET("/users", Users)
+	r.GET("/", Ping)
+	r.Run() // 在 0.0.0.0:8080 上监听并服务
+}
+```
+
+
+
+#### 反射了解过吗，原理了解吗？
+
+#### 实际使用过吗？
+
+#### 实现使用字符串函数名调用函数
+
+```go
+package main
+
+import (
+    "fmt"
+    "reflect"
+)
+
+type Animal struct {
+}
+
+func (m *Animal) Eat() {
+    fmt.Println("Eat")
+}
+func main() {
+    animal := Animal{}
+    value := reflect.ValueOf(&animal)
+    f := value.MethodByName("Eat") //通过反射获取它对应的函数，然后通过call来调用
+    f.Call([]reflect.Value{})
+}
+```
+
+
+
+#### golang的锁机制了解过吗？mutex的锁有哪几种机制，分别介绍一下？mutex锁底层如何实现了解过？
+
+互斥锁的加锁是靠 sync.Mutex.Lock 方法完成的, 当锁的状态是 0 时，将 mutexLocked 位置成 1：
+
+```go
+// Lock locks m.
+// If the lock is already in use, the calling goroutine
+// blocks until the mutex is available.
+func (m *Mutex) Lock() {
+    // Fast path: grab unlocked mutex.
+    if atomic.CompareAndSwapInt32(&m.state, 0, mutexLocked) {
+        if race.Enabled {
+            race.Acquire(unsafe.Pointer(m))
+        }
+        return
+    }
+    // Slow path (outlined so that the fast path can be inlined)
+    m.lockSlow()
+}
+```
+
+Mutex：正常模式和饥饿模式
+
+在正常模式下，锁的等待者会按照先进先出的顺序获取锁。
+
+但是刚被唤起的 Goroutine 与新创建的 Goroutine 竞争时，大概率会获取不到锁，为了减少这种情况的出现，一旦 Goroutine 超过 1ms 没有获取到锁，它就会将当前互斥锁切换饥饿模式，防止部分 Goroutine 被饿死。
+
+饥饿模式是在 Go 语言 1.9 版本引入的优化的，引入的目的是保证互斥锁的公平性（Fairness）。
+
+在饥饿模式中，互斥锁会直接交给等待队列最前面的 Goroutine。新的 Goroutine 在该状态下不能获取锁、也不会进入自旋状态，它们只会在队列的末尾等待。
+
+如果一个 Goroutine 获得了互斥锁并且它在队列的末尾或者它等待的时间少于 1ms，那么当前的互斥锁就会被切换回正常模式。
+
+相比于饥饿模式，正常模式下的互斥锁能够提供更好地性能，饥饿模式的能避免 Goroutine 由于陷入等待无法获取锁而造成的高尾延时。
+
+#### channel
+
+#### 手写实现一个负载均衡算法
+
+```go
+package balance
+
+import (
+	"strconv"
+    "fmt"
+    "os"
+)
+
+// 定义接口
+type Balancer interface {
+    DoBalance([]*instance, ...string) (*instance, error)
+}
+
+// 实例
+type Instance struct {
+    host string
+    port int
+}
+
+func NewInstance(host string, port int) *Instance {
+    return &Instance {
+        host: host,
+        prot: port,
+    }
+}
+
+// 定义Instance 结构体的方法GetHost
+func (p *instance) GetHost() string {
+    return p.host
+}
+
+// 定义方法GetPort()
+func (p *Instance) GetPort() int {
+    return p.port
+}
+
+func (p *instance) String() string {
+    return p.host + ":" + strconv.Itoa(p.port)
+}
+
+type BalanceMgr struct {
+    allBalancer map[string]Balancer
+}
+
+var mgr = BalanceMgr {
+    allBalance: make(map[string]Balancer),
+}
+
+func (p *BalanceMgr) registerBalancer(name string, b Balancer) {
+    p.allBalancer[name] = b
+}
+
+func RegisterBalancer(name string, b Balancer) {
+    mgr.registerBalancer(name, b)
+}
+
+func DoBalance(name string, insts[]*instance) (inst *Instance, err error) {
+    balancer, ok := mgr.allBalancer[name]
+    if !ok {
+        err = fmt.Errorf("Not found %s balancer", name)
+        return
+    }
+    
+    fmt.Printf("Use %s balancer\n", name)
+    inst, err = balancer.DoBalance(insts)
+    return 
+}
+
+// 随机轮询
+func init() {
+    RegisterBalancer("random", &RandomBalance())
+}
+
+type RandomBalance struct {
+    
+}
+
+func (p *RandomBalance) DoBalance(insts []*Instance, key ...string) (inst *Instance, err error) {
+    if len(insts) == 0 {
+        err = errors.New("No instance")
+        return
+    }
+    
+    lens := len(insts)
+    index := rand.Intn(lens)
+    inst = insts[index]
+    return
+}
+
+// 顺序轮询
+func init() {
+    RegisterBalancer("roundrobin", &RoundRobinBalance())
+}
+
+type RoundRobinBalance struct {
+    curIndex int
+}
+
+func (p *RoundRobinBalance) DoBalance(insts []*Instance, key ...string) (inst *Instance, err error) {
+    if len(insts) == 0 {
+        err = errors.New("No instance")
+        return
+    }
+    
+    lens := len(insts)
+    if p.curIndex >= lens {
+        p.curIndex = 0
+    }
+    inst = insts[p.curIndex]
+    p.curIndex = (P.curIndex + 1) % lens
+    return
+}
+
+func main() {
+    // 将后台服务器放入随机队列
+    var insts []*balance.Instance
+    for i := 0; i < 16; i++ {
+        host := fmt.Sprintf("192,168.%d.%d", rand.Intn(255), rand.Intn(255))
+        one := balance.NewInstance(host, 8080)
+        insts = append(insts, one)
+    }
+    
+    var balanceName = "random"
+    if len(os.Args) > 1 {
+        balanceName = os.Args[1]
+    }
+    
+    for {
+        inst, err := balance.DoBalance(balanceName, insts)
+        if err != nil {
+            fmt.Println("do balance err:", err)
+            fmt.Fprintf(os.Stdout, "do balance err\n")
+            continue
+        }
+        
+        fmt.Println(inst)
+        time.Sleep(time.Second)
+    }
+}
+```
+
+
+
+### Go数据竞争怎么解决
+
+Data Race 问题可以使用互斥锁解决，或者也可以通过CAS无锁并发解决
+
+中使用同步访问共享数据或者CAS无锁并发是处理数据竞争的一种有效的方法.
+
+golang在1.1之后引入了竞争检测机制，可以使用 go run -race 或者 go build -race来进行静态检测。
+
+其在内部的实现是,开启多个协程执行同一个命令， 并且记录下每个变量的状态.
+
+竞争检测器基于C/C++的ThreadSanitizer运行时库，该库在Google内部代码基地和Chromium找到许多错误。这个技术在2012年九月集成到Go中，从那时开始，它已经在标准库中检测到42个竞争条件。现在，它已经是我们持续构建过程的一部分，当竞争条件出现时，它会继续捕捉到这些错误。
+
+竞争检测器已经完全集成到Go工具链中，仅仅添加-race标志到命令行就使用了检测器。
+
+```text
+$ go test -race mypkg    // 测试包
+$ go run -race mysrc.go  // 编译和运行程序
+$ go build -race mycmd  // 构建程序
+$ go install -race mypkg // 安装程序
+```
+
+要想解决数据竞争的问题可以使用互斥锁sync.Mutex,解决数据竞争(Data race),也可以使用管道解决,使用管道的效率要比互斥锁高.
