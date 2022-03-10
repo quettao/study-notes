@@ -115,7 +115,80 @@ function repetitiveBinarySearch(array $data, int $needle){
 
 
 
+
+
+```php
+function interpolationSearch(array $arr, int $needle) {
+    $low = 0;
+    $high = count($arr) - 1;
+    while ($arr[$low] != $arr[$high] && $needle >= $arr[$low] && $needle < $arr[$high]) {
+        $middle = intval($low + ( ($needle - $arr[$low]) * ($high - $low) / ($arr[$high] - $arr[$low]) ));
+        
+        if ($arr[$middle] < $needle) {
+            $high = $middle - 1;
+        } else if ($arr[$middle] > $needle) {
+            $low = $middle + 1;
+        } else {
+            return $middle;
+        }
+    }
+    if ($needle == $arr[$low]) {
+        return $low;
+    }
+    return -1;
+}
+```
+
+插值搜索需要更多的计算步骤，但是如果数据是均匀分布的，这个算法的平均复杂度是O(log(log n))，这比二分搜索的复杂度O(logn)要好得多。 此外，如果值的分布不均匀，我们必须要小心。 在这种情况下，插值搜索的性能可以需要重新评估。下面我们将探索另一种称为指数搜索的二分搜索变体。
+
 #### 插值搜索
+
+在二分搜索算法中，总是从数组的中间开始搜索过程。 如果一个数组是均匀分布的，并且我们正在寻找的数据可能接近数组的末尾，那么从中间搜索可能不是一个好选择。 在这种情况下，插值搜索可能非常有用。插值搜索是对二分搜索算法的改进，插值搜索可以基于搜索的值选择到达不同的位置。例如，如果我们正在搜索靠近数组开头的值，它将直接定位到到数组的第一部分而不是中间。使用公式计算位置，如下所示
+
+![img](algorithm.assets/v2-12264ce182c300fbcfa115e617bb186a_720w.png)
+
+可以发现，我们将从通用的mid =（low * high)/2 转变为更复杂的等式。如果搜索的值更接近arr[high]，则此公式将返回更高的索引，如果值更接近arr[low]，则此公式将返回更低的索引.
+
+```php
+function interpolationSearch(array $arr, int $needle) {
+    $low = 0;
+    $high = count($arr) - 1;
+
+    while ($arr[$low] != $arr[$high] && $needle >= $arr[$low] && $needle <= $arr[$high]) {
+        $middle = intval($low + ($needle - $arr[$low]) * ($high - $low) / ($arr[$high] - $arr[$low]));
+
+        if ($arr[$middle] < $needle) {
+            $low = $middle + 1;
+        } elseif ($arr[$middle] > $needle) {
+            $high = $middle - 1;
+        } else {
+            return $middle;
+        }
+    }
+
+    if ($needle == $arr[$low]) {
+        return $low;
+    } 
+    
+    return -1;
+    
+}
+```
+
+
+
+插值搜索需要更多的计算步骤，但是如果数据是均匀分布的，这个算法的平均复杂度是O(log(log n))，这比二分搜索的复杂度O(logn)要好得多。 此外，如果值的分布不均匀，我们必须要小心。 在这种情况下，插值搜索的性能可以需要重新评估。下面我们将探索另一种称为指数搜索的二分搜索变体。
+
+
+
+#### 指数搜索
+
+在二分搜索中，我们在整个列表中搜索给定的数据。指数搜索通过决定搜索的下界和上界来改进二分搜索，这样我们就不会搜索整个列表。它减少了我们在搜索过程中比较元素的数量。指数搜索是在以下两个步骤中完成的：
+
+1. 我们通过查找第一个指数k来确定边界大小，其中值2^k的值大于搜索项。 现在，2^k和2^(k-1)分别成为上限和下限。
+2. 使用以上的边界来进行二分搜索。
+
+下面我们来看下PHP实现的代码
 
 
 
