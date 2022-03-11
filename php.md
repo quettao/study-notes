@@ -2333,11 +2333,125 @@ Nginx 和 LVS 对比的总结：
 
 参数化SQL：是指在设计与数据库链接并访问数据时，在需要填入数值或数据的地方，使用参数 (Parameter) 来给值，用@或？来表示参数。
 
+例如：
+
+```php
+$username = $_GET['username'];
+$query = "SELECT * FROM users WHERE username = '$username'";
+```
+
+攻击者控制通过 GET 和 POST 发送的查询（或者例如 UA 的一些其他查询）。一般情况下，你希望查询户名为「 peter 」的用户产生的 SQL 语句如下：
+
+```mysql
+SELECT * FROM users WHERE username = 'peter'
+```
+
+但是，攻击者发送了特定的用户名参数，例如：' OR '1'='1
+
+这就会导致 SQL 语句变成这样：
+
+```mysql
+SELECT * FROM users WHERE username = 'peter' OR '1' = '1'
+```
+
+这样，他就能在不需要密码的情况下导出你的整个用户表的数据了。
+
+那么，我们如何防止这类事故的发生呢？主流的解决方法有两种。转义用户输入的数据或者使用封装好的语句。转义的方法是封装好一个函数，用来对用户提交的数据进行过滤，去掉有害的标签。但是，我不太推荐使用这个方法，因为比较容易忘记在每个地方都做此处理。
+
+下面，我来介绍如何使用 PDO 执行封装好的语句（ mysqi 也一样）：
+
+```php
+$username = $_GET['username'];
+$query = $pdo->prepare('SELECT * FROM users WHERE username = :username');
+$query->execute(['username' => $username]);
+$data = $query->fetch();
+```
+
+动态数据的每个部分都以：做前缀。然后将所有参数作为数组传递给执行函数，看起来就像 PDO 为你转义了有害数据一样。
+
+
+
 ###### XSS攻击 ：
 
 跨站点脚本攻击，由用户输入一些数据到你的网站，其中包括客户端脚本(通常JavaScript)。如果你没有过滤就输出数据到另一个web页面，这个脚本将被执行。
 
 防止：为了防止XSS攻击，使用PHP的htmlentities()函数过滤再输出到浏览器。
+
+例如：
+
+```html
+<body>
+<?php
+$searchQuery = $_GET['q'];
+/* some search magic here */
+?>
+<h1>You searched for: <?php echo $searchQuery; ?></h1>
+<p>We found: Absolutely nothing because this is a demo</p>
+</body>
+```
+
+因为我们把用户的内容直接打印出来，不经过任何过滤，非法用户可以拼接 URL：
+
+```
+search.php?q=%3Cscript%3Ealert(1)%3B%3C%2Fscript%3E
+```
+
+PHP 渲染出来的内容如下，可以看到 Javascript 代码会被直接执行：
+
+```html
+<body>
+<h1>You searched for: <script>alert(1);</script></h1>
+<p>We found: Absolutely nothing because this is a demo</p>
+</body>
+```
+
+问：JS 代码被执行有什么大不了的？
+
+Javascript 可以:
+
+- 偷走你用户浏览器里的 Cookie；
+- 通过浏览器的记住密码功能获取到你的站点登录账号和密码；
+- 盗取用户的机密信息；
+- 你的用户在站点上能做到的事情，有了 JS 权限执行权限就都能做，也就是说 A 用户可以模拟成为任何用户；
+- 在你的网页中嵌入恶意代码；
+
+问：如何防范此问题呢？
+
+好消息是比较先进的浏览器现在已经具备了一些基础的 XSS 防范功能，不过请不要依赖与此。
+
+正确的做法是坚决不要相信用户的任何输入，并过滤掉输入中的所有特殊字符。这样就能消灭绝大部分的 XSS 攻击：
+
+```php
+$searchQuery = htmlentities($searchQuery, ENT_QUOTES);
+```
+
+或者你可以使用模板引擎 Twig ，一般的模板引擎都会默认为输出加上 htmlentities 防范。
+
+如果你保持了用户的输入内容，在输出时也要特别注意，在以下的例子中，我们允许用户填写自己的博客链接：
+
+```html
+<body>
+  <a href="<?php echo $homepageUrl; ?>">Visit Users homepage</a>
+</body>
+```
+
+以上代码可能第一眼看不出来有问题，但是假设用户填入以下内容：
+
+```html
+#" onclick="alert(1)
+```
+
+会被渲染为：
+
+```html
+<body>
+  <a href="#" onclick="alert(1)">Visit Users homepage</a>
+</body>
+```
+
+**另外设置 Cookie 时，如果无需 JS 读取的话，请必须设置为 "HTTP ONLY"。这个设置可以令 JavaScript 无法读取 PHP 端种的 Cookie。**
+
+
 
 ###### CSRF：
 
@@ -2349,6 +2463,228 @@ Nginx 和 LVS 对比的总结：
 
 生成另一个一次性的令牌并将其嵌入表单，保存在会话中(一个会话变量)，在提交时检查它。 如laravel中的 _token
 
+例如：
+
+```php
+$confirm = $_GET['confirm'];
+
+if($confirm === 'yes') {
+  //goodbye
+}
+```
+
+攻击者可以在他的站点上构建一个触发这个 URL 的表单（同样适用于 POST 的表单），或者将 URL 加载为图片诱惑用户点击：
+
+```html
+<img src="https://example.com/delete-account.php?confirm=yes" />
+```
+
+用户一旦触发，就会执行删除账户的指令，眨眼你的账户就消失了。
+
+防御这样的攻击比防御 XSS 与 SQL 注入更复杂一些。
+
+最常用的防御方法是生成一个 CSRF 令牌加密安全字符串，一般称其为 Token，并将 Token 存储于 Cookie 或者 Session 中。
+
+每次你在网页构造表单时，将 Token 令牌放在表单中的隐藏字段，表单请求服务器以后会根据用户的 Cookie 或者 Session 里的 Token 令牌比对，校验成功才给予通过。
+
+由于攻击者无法知道 Token 令牌的内容（每个表单的 Token 令牌都是随机的），因此无法冒充用户。
+
+```html
+<form action="/delete-account.php" method="post">
+  <input type="hidden" name="csrf" value="<?php echo $_SESSION['csrf']; ?>">
+  <input type="hidden" name="confirm" value="yes" />
+  <input type="submit" value="Delete my account" />
+</form>
+```
+
+```php
+$confirm = $_POST['confirm'];
+$csrf = $_POST['csrf'];
+$knownGoodToken = $_SESSION['csrf'];
+
+if($csrf !== $knownGoodToken) {
+  die('Invalid request');
+}
+
+if($confirm === 'yes') {
+  //goodbye
+}
+```
+
+###### LFI
+
+LFI （本地文件包含） 是一个用户未经验证从磁盘读取文件的漏洞。
+
+我经常遇到编程不规范的路由代码示例，它们不验证过滤用户的输入。我们用以下文件为例，将它要渲染的模板文件用 GET 请求加载。
+
+```html
+<body>
+<?php
+  $page = $_GET['page'];
+  if(!$page) {
+    $page = 'main.php';
+  }
+  include($page);
+?>
+</body>
+```
+
+由于 Include 可以加载任何文件，不仅仅是 PHP，攻击者可以将系统上的任何文件作为包含目标传递。
+
+```
+index.php?page=../../etc/passwd
+```
+
+这将导致 /etc/passwd 文件被读取并展示在浏览器上。
+
+要防御此类攻击，你必须仔细考虑允许用户输入的类型，并删除可能有害的字符，如输入字符中的 “.” “/” “\”。
+
+如果你真的想使用像这样的路由系统（我不建议以任何方式），你可以自动附加 PHP 扩展，删除任何非 [a-zA-Z0-9-_] 的字符，并指定从专用的模板文件夹中加载，以免被包含任何非模板文件。
+
+
+
+###### 不充分的密码哈希
+
+大部分的 Web 应用需要保存用户的认证信息。如果密码哈希做的足够好，在你的网站被攻破时，即可保护用户的密码不被非法读取。
+
+首先，最不应该做的事情，就是把用户密码明文储存起来。大部分的用户会在多个网站上使用同一个密码，这是不可改变的事实。当你的网站被攻破，意味着用户的其他网站的账号也被攻破了。
+
+其次，你不应该使用简单的哈希算法，事实上所有没有专门为密码哈希优化的算法都不应使用。哈希算法如 MD5 或者 SHA 设计初衷就是执行起来非常快。这不是你需要的，密码哈希的终极目标就是让黑客花费无穷尽的时间和精力都无法破解出来密码。
+
+另外一个比较重要的点是你应该为密码哈希加盐（Salt），加盐处理避免了两个同样的密码会产生同样哈希的问题。
+
+以下使用 MD5 来做例子，所以请千万不要使用 MD5 来哈希你的密码， MD5 是不安全的。
+
+假如我们的用户 user1 和 user315 都有相同的密码 ilovecats123，这个密码虽然看起来是强密码，
+
+有字母有数字，但是在数据库里，两个用户的密码哈希数据将会是相同的：5e2b4d823db9d044ecd5e084b6d33ea5 。
+
+如果一个如果黑客拿下了你的网站，获取到了这些哈希数据，他将不需要去暴力破解用户 user315 的密码。我们要尽量让他花大精力来破解你的密码，所以我们对数据进行加盐处理：
+
+```php
+//warning: !!这是一个很不安全的密码哈希例子，请不要使用!!
+
+$password = 'cat123';
+$salt = random_bytes(20);
+
+$hash = md5($password . $salt);
+```
+
+最后在保存你的唯一密码哈希数据时，请不要忘记连 $salt 也已经保存，否则你将无法验证用户。
+
+在当下，最好的密码哈希选项是 bcrypt，这是专门为哈希密码而设计的哈希算法，同时这套哈希算法里还允许你配置一些参数来加大破解的难度。
+
+新版的 PHP 中也自带了安全的密码哈希函数 password_hash ，此函数已经包含了加盐处理。对应的密码验证函数为 password_verify 用来检测密码是否正确。password_verify 还可有效防止 时序攻击.
+
+以下是使用的例子：
+
+```php
+//user signup
+$password = $_POST['password'];
+$hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+//login
+$password = $_POST['password'];
+$hash = '1234'; //load this value from your db
+
+if(password_verify($password, $hash)) {
+  echo 'Password is valid!';
+} else {
+  echo 'Invalid password.';
+```
+
+需要澄清的一点是：密码哈希并不是密码加密。哈希（Hash）是将目标文本转换成具有相同长度的、不可逆的杂凑字符串（或叫做消息摘要），而加密（Encrypt）是将目标文本转换成具有不同长度的、可逆的密文。显然他们之间最大的区别是可逆性，在储存密码时，我们要的就是哈希这种不可逆的属性。
+
+
+
+###### 中间人攻击
+
+MITM （中间人） 攻击不是针对服务器直接攻击，而是针对用户进行，攻击者作为中间人欺骗服务器他是用户，欺骗用户他是服务器，从而来拦截用户与网站的流量，并从中注入恶意内容或者读取私密信息，通常发生在公共 WiFi 网络中，也有可能发生在其他流量通过的地方，例如 ISP 运营商。
+
+对此的唯一防御是使用 HTTPS，使用 HTTPS 可以将你的连接加密，并且无法读取或者篡改流量。你可以从 Let's Encrypt 获取免费的 SSL 证书，或从其他供应商处购买，这里不详细介绍如何正确配置 WEB 服务器，因为这与应用程序安全性无关，且在很大程度上取决于你的设置。
+
+你还可以采取一些措施使 HTTPS 更安全，在 WEB 服务器配置加上 Strict-Transport-Security 标示头，此头部信息告诉浏览器，你的网站始终通过 HTTPS 访问，如果未通过 HTTPS 将返回错误报告提示浏览器不应显示该页面。
+
+然而，这里有个明显的问题，如果浏览器之前从未访问过你的网站，则无法知道你使用此标示头，这时候就需要用到 Hstspreload。
+
+你在此处提交的所有网站都将被标记为仅 HTTPS，并硬编码到 Google Chrome、FireFox、Opera、Safari、IE11 和 Edge 的源代码中。
+
+你还可以在 DNS 配置中添加 Certification Authority Authorization (CAA) record ，可以仅允许一个证书颁发机构（例如： Let's encrypt）发布你的域名证书，这进一步提高了用户的安全性。
+
+
+
+###### 命令注入
+
+这可能是服务器遇到的最严重的攻击，命令注入的目标是欺骗服务器执行任意 Shell 命令
+
+你如果使用 shell_exec 或是 exec 函数。让我们做一个小例子，允许用户简单的从服务器 Ping 不同的主机。
+
+```php
+$targetIp = $_GET['ip'];
+$output = shell_exec("ping -c 5 $targetIp");
+```
+
+输出将包括对目标主机 Ping 5 次。除非采用 sh 命令执行 Shell 脚本，否则攻击者可以执行想要的任何操作。
+
+```
+ping.php?ip=8.8.8.8;ls -l /etc
+```
+
+Shell 将执行 Ping 和由攻击者拼接的第二个命令，这显然是非常危险的。
+
+感谢 PHP 提供了一个函数来转义 Shell 参数。
+
+escapeshellarg 转义用户的输入并将其封装成单引号。
+
+```php
+$targetIp = escapeshellarg($_GET['ip']);
+$output = shell_exec("ping -c 5 $targetIp");
+```
+
+现在你的命令应该是相当安全的，就个人而言，我仍然避免使用 PHP 调用外部命令，但这完全取决于你自己的喜好。
+
+
+
+######  XXE
+
+XXE （XML 外部实体） 是一种应用程序使用配置不正确的 XML 解析器解析外部 XML 时，导致的本地文件包含攻击，甚至可以远程代码执行。
+
+XML 有一个鲜为人知的特性，它允许文档作者将远程和本地文件作为实体包含在其 XML 文件中。
+
+```
+<?xml version="1.0" encoding="ISO-8859-1"?>
+ <!DOCTYPE foo [
+   <!ELEMENT foo ANY >
+   <!ENTITY passwd SYSTEM "file:///etc/passwd" >]>
+   <foo>&passwd;</foo>
+```
+
+就像这样， /etc/passwd 文件内容被转储到 XML 文件中。
+
+如果你使用 libxml 可以调用 libxml_disable_entity_loader 来保护自己免受此类攻击。使用前请仔细检查 XML 库的默认配置，以确保配置成功。
+
+
+
+###### 在生产环境中不正确的错误报告暴露敏感数据
+
+如果你不小心，可能会在生产环境中因为不正确的错误报告泄露了敏感信息，例如：文件夹结构、数据库结构、连接信息与用户信息。
+
+<img src="https://pic3.zhimg.com/80/v2-0c0d200decd1bd7e20e549ae5d6d4252_1440w.jpg" alt="img" style="zoom:33%;" />
+
+你是不希望用户看到这个的吧？
+
+一般根据你使用的框架或者 CMS ，配置方法会有不同的变化。通常框架具有允许你将站点更改为某种生产环境的设置。这样会将所有用户可见的错误消息重定向到日志文件中，并向用户显示非描述性的 500 错误，同时允许你根据错误代码检查。
+
+但是你应该根据你的 PHP 环境设置： error_reporting 与 display_errors.
+
+
+
+###### 登录限制
+
+像登录这样的敏感表单应该有一个严格的速率限制，以防止暴力攻击。保存每个用户在过去几分钟内失败的登录尝试次数，如果该速率超过你定义的阈值，则拒绝进一步登录尝试，直到冷却期结束。还可通过电子邮件通知用户登录失败，以便他们知道自己的账户被成为目标。
+
+
+
 ###### 代码注入：
 
 代码注入是利用计算机漏洞通过处理无效数据造成的。问题出在，当你不小心执行任意代码，通常通过文件包含。写得很糟糕的代码可以允许一个远程文件包含并执行。如许多PHP函数，如require可以包含URL或文件名。
@@ -2358,6 +2694,31 @@ Nginx 和 LVS 对比的总结：
 过滤用户输入
 
 在php.ini中设置禁用allow_url_fopen和allow_url_include。这将禁用require/include/fopen的远程文件
+
+
+
+###### 一些其他补充
+
+- 不要信任从用户传递给你的对象 ID ，始终验证用户对请求对象的访问权限
+- 服务器与使用的库时刻保持最新
+- 订阅关注安全相关的博客，了解最新的解决方案
+- 从不在日志中保存用户的密码
+- 不要将整个代码库存储在 WEB 根目录中
+- 永远不要在 WEB 根目录创建 Git 存储库，除非你希望泄露整个代码库
+- 始终假设用户的输入是不安全的
+- 设置系统禁止可疑行为的 IP 显示，例如：工具对 URL 随机扫描、爬虫
+- 不要过分信任第三方代码是安全的
+- 不要用 Composer 直接从 Github 获取代码
+- 如果不希望站点被第三方跨域 iframe，请设置反 iframe 标示头
+- 含糊是不安全的
+- 如果你是缺乏实践经验的运营商或合作开发人员，请确保尽可能时常检查代码
+- 当你不了解安全功能应该如何工作，或者为什么会安装，请询问知道的人，不要忽视它
+- 永远不要自己写加密方式，这可能是个坏的方法
+- 如果你没有足够的熵，请正确播种你的伪随机数生成并舍弃
+- 如果在互联网上不安全，并有可能被窃取信息，请为这种情况做好准备并制定事件响应计划
+- 禁用 WEB 根目录列表显示，很多 WEB 服务器配置默认都会列出目录内容，这可能导致数据泄露
+- 客户端验证是不够的，需要再次验证 PHP 中的所有内容
+- 不惜一切代价避免反序列化用户内容，这可能导致远程代码执行，有关此问题的详细信息，
 
 #### 68. **谈谈对 MVC 的认识**
 

@@ -190,6 +190,209 @@ function interpolationSearch(array $arr, int $needle) {
 
 下面我们来看下PHP实现的代码
 
+```php
+function exponentialSearch(array $arr, int $needle): int {
+  $length = count($arr);
+  if ($length == 0) return -1;
+  $bound = 1;
+  while($bound < $length; && $arr[$bound] < $needle) {
+    $bound *= 2;
+  }
+  
+  return binarySearch($arr, $needle, $bound >> 1, min($bound, $length));
+}
+```
+
+我们把$needle出现的位置记位i，那么我们第一步花费的时间复杂度就是O(logi)。表示为了找到上边界，我们的while循环需要执行O(logi)次。因为下一步应用一个二分搜索，时间复杂度也是O(logi)。我们假设j是我们上一个while循环执行的次数，那么本次二分搜索我们需要搜索的范围就是2^j-1 至 2^j，而j=logi，即
+
+![img](https://pic2.zhimg.com/80/v2-6e9e09350f2c075e51d082eb3cd3458d_1440w.png)
+
+那我们的二分搜索时间复杂度需要对这个范围求log2，即
+
+![img](https://pic3.zhimg.com/80/v2-d4ff3253c8827d30be5b13137c07ed46_1440w.png)
+
+那么整个指数搜索的时间复杂度就是2 O(logi)，省略掉常数就是O(logi)。
+
+![img](https://pic3.zhimg.com/80/v2-7fe057bedee293a411a7a3d52bc26a56_1440w.jpg)
+
+#### 哈希查找
+
+在搜索操作方面，哈希表可以是非常有效的数据结构。在哈希表中，每个数据都有一个与之关联的唯一索引。如果我们知道要查看哪个索引，我们就可以非常轻松地找到对应的值。通常，在其他编程语言中，我们必须使用单独的哈希函数来计算存储值的哈希索引。散列函数旨在为同一个值生成相同的索引，并避免冲突。
+
+PHP底层C实现中数组本身就是一个哈希表，由于数组是动态的，不必担心数组溢出。我们可以将值存储在关联数组中，以便我们可以将值与键相关联。
+
+```php
+function hashSearch(array $arr, int $needle)
+{
+    return isset($arr[$needle]) ? true : false;
+}
+```
+
+#### 树搜索
+
+搜索分层数据的最佳方案之一是创建搜索树。在第[理解和实现树](https://link.zhihu.com/?target=https%3A//segmentfault.com/a/1190000015635928)中，我们了解了如何构建二叉搜索树并提高搜索效率，并且介绍了遍历树的不同方法。 现在，继续介绍两种最常用的搜索树的方法，通常称为广度优先搜索（BFS）和深度优先搜索（DFS）。
+
+##### 广度优先搜索（BFS）
+
+在树结构中，根连接到其子节点，每个子节点还可以继续表示为树。 在广度优先搜索中，我们从节点（主要是根节点）开始，并且在访问其他邻居节点之前首先访问所有相邻节点。 换句话说，我们在使用BFS时必须逐级移动。
+
+![img](https://pic3.zhimg.com/80/v2-deb80829df1d0d51da6a66db13f4761e_1440w.jpg)
+
+使用BFS，会得到以下的序列。
+
+![img](https://pic1.zhimg.com/80/v2-a8cae51654cc6103cbd741030a254bac_1440w.png)
+
+伪代码如下：
+
+```
+procedure BFS(Node root)
+    Q := empty queue
+    Q.enqueue(root)
+    
+    while(Q != empty) 
+        u := Q.dequeue()
+        for each node w that is childnode of u
+            Q.enqueue(w)
+        end for each
+    end while
+end procedure
+```
+
+下面是PHP代码。
+
+```php
+class TreeNode
+{
+  public $data = null;
+  public $children = [];
+  
+  public function __construct(string $data = null) {
+    $this->data = $data;
+  }
+  
+  public function addChildren(TreeNode $treeNode) {
+    $this->children[] = $treeNode;
+  }
+}
+
+class Tree
+{
+  public $root = null;
+  
+  public function __construct(TreeNode $treeNode) {
+    $this->root = $treeNode;
+  }
+  public function BFS(TreeNode $node): array {
+    $arr = [];
+    $visited = [];
+    array_unshift($arr, $node);
+    while (!empty($arr)) {
+      $current = array_shift($arr);
+      array_unshift($visited, $current);
+      
+      foreach ($current->children as $children) {
+        array_unshift($arr, $children);
+      }
+    }
+    return $visited;
+  }
+  
+}
+```
+
+如果想要查找节点是否存在，可以为当前节点值添加简单的条件判断即可。BFS最差的时间复杂度是O（|V| + |E|），其中V是顶点或节点的数量，E则是边或者节点之间的连接数，最坏的情况空间复杂度是O（|V|）。
+
+图的BFS和上面的类似，但略有不同。 由于图是可以循环的（可以创建循环），需要确保我们不会重复访问同一节点以创建无限循环。 为了避免重新访问图节点，必须跟踪已经访问过的节点。可以使用队列，也可以使用图着色算法来解决。
+
+
+
+##### 深度优先搜索（DFS）
+
+深度优先搜索（DFS）指的是从一个节点开始搜索，并从目标节点通过分支尽可能深地到达节点。 DFS与BFS不同，简单来说，就是DFS是深入挖掘而不是先扩散。DFS在到达分支末尾时然后向上回溯，并移动到下一个可用的相邻节点，直到搜索结束。还是上面的树
+
+![img](https://pic2.zhimg.com/80/v2-3ac8b581e62926bd15b97dca768849fd_1440w.jpg)
+
+这次我们会获得不通的遍历顺序(中序遍历)：
+
+![img](https://pic1.zhimg.com/80/v2-af9254dd0f5ac15935de2472ee315be4_1440w.png)
+
+从根开始，然后访问第一个孩子，即3。然后，到达3的子节点，并反复执行此操作，直到我们到达分支的底部。在DFS中，我们将采用递归方法来实现(中序)。
+
+```
+procedure DFS(Node current)
+    for each node v that is childnode of current
+       DFS(v)
+    end for each
+end procedure
+```
+
+
+
+```php
+public function DFS(TreeNode $node): array {
+  $visited[] = $node;
+  if ($node->children) {
+    foreach($node->children as $children) {
+      array_unshift($visited, $children);
+    }
+  }
+  return $visited;
+}
+```
+
+如果需要使用迭代实现，必须记住使用栈而不是队列来跟踪要访问的下一个节点。下面使用迭代方法的实现
+
+```php
+public function DFS(TreeNode $node): SplQueue
+{
+    $stack = new SplStack();
+    $visited = new SplQueue();
+
+    $stack->push($node);
+
+    while (!$stack->isEmpty()) {
+        $current = $stack->pop();
+        $visited->enqueue($current);
+
+        foreach ($current->children as $child) {
+            $stack->push($child);
+        }
+    }
+
+    return $visited;
+}
+```
+
+这看起来与BFS算法非常相似。主要区别在于使用栈而不是队列来存储被访问节点。它会对结果产生影响。上面的代码将输出8 10 14 13 3 6 7 4 1。这与我们使用迭代的算法输出不同，但其实这个结果没有毛病。
+
+因为使用栈来存储特定节点的子节点。对于值为8的根节点，第一个值是3的子节点首先入栈，然后，10入栈。由于10后来入栈，它遵循LIFO。所以，如果我们使用栈实现DFS，则输出总是从最后一个分支开始到第一个分支。可以在DFS代码中进行一些小调整来达到想要的效果。
+
+```php
+public function DFS(TreeNode $node): SplQueue
+{
+    $stack = new SplStack();
+    $visited = new SplQueue();
+
+    $stack->push($node);
+
+    while (!$stack->isEmpty()) {
+        $current = $stack->pop();
+        $visited->enqueue($current);
+
+        $current->children = array_reverse($current->children);
+        foreach ($current->children as $child) {
+            $stack->push($child);
+        }
+    }
+
+    return $visited;
+}
+```
+
+由于栈遵循Last-in，First-out（LIFO），通过反转，可以确保先访问第一个节点，因为颠倒了顺序，栈实际上就作为队列在工作。要是我们搜索的是二叉树，就不需要任何反转，因为我们可以选择先将右孩子入栈，然后左子节点首先出栈。
+
+DFS的时间复杂度类似于BFS。
+
 
 
 ### 树的遍历
