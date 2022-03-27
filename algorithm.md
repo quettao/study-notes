@@ -2034,6 +2034,124 @@ function str($str) {
 
 一群猴子排成一圈，按1,2，。。。，n依次编号.然后从第1只开始数，数到第m只，把它踢出圈，从它后面再开始数，再数到第m只，再把它踢出去。。。，如此不停的进行下去，直到最后一个猴子为止，那只猴子就叫做大王。要求编程模拟此过程，输入m、n，输出最后那个大王的编号。
 
+```php
+function hou_king($nm $m) {
+    // 构造数组
+    for ($i = 1; $i < $n; $i++) {
+        $arr[] = $i;
+    }
+    $i = 0; // 设置数组指针
+    // 猴子数量大于1进去循环
+    while (count($arr) > 1) {
+        // 判断猴子是否出局，如果出局就删掉，没出局放到数组最后，继续循环
+        if (($i+1) % $m == 0) {
+            unset($arr[$i]);
+        } else {
+            array_push($arr, $arr[$i]); // 把值加入数组末尾
+            unset($arr[$i]); // 删除数组前面这个值
+        }
+        $i++;
+    }
+    return $arr;
+}
+```
+
+
+
+### 求未出现的最小正整数
+
+给定一组无序整数数组，找出其中未出现的最小正整数，例如[1,2,3,5]输出4
+
+```php
+/**
+ * 思路1：把原理的数组去掉负数，重复数字，然后排序
+ * 然后把数组下标+1跟值比较，找出第一个不同的，输出小标对应的值+1；全部相同，输出最大值加1
+ */
+function test($arr) {
+    // 去重
+    $arr = array_unique($arr);
+    // 重新排一下下标
+    $arr = array_merge($arr);
+    $a = [];
+    for ($i=0; $i < count($arr); $i++) {
+        if ($arr[$i] > 0) {
+			$a[] = $arr[$i];
+        }
+    }
+    
+    // 排序
+    sort($a, SORT_NUMERIC);
+    
+    // 比较查找
+    for ($i = 0; $i < count($a); $i++) {
+        if ($a[$i] + 1 != $a[$i+1]) {
+            return $a[$i] + 1;
+        }
+    }
+    return -1;
+}
+
+// 思路2
+// 直接死循环，一个个去尝试数组里面是否存在，如果第一个不存在的就输出结束
+function test($arr) {
+    for ($i=1; $i > 0; $i++) {
+        if (!in_array($i, $arr)) {
+            return $i;
+        }
+    }
+    return -1;
+}
+```
+
+
+
+### 文件锁机制
+
+请写一段代码，确保多个进程同时写入同一个文件成功`
+
+```php
+// 思路： 加锁
+$file = fopen("test.txt", "w+");
+if (flock($file, LOCK_EX)) {
+    // 获得写锁，开始写入数据
+    fwrite($file, "xxx");
+    // 打开锁
+    flock($file, LOCK_UN);
+} else {
+    echo "file is locking";
+}
+// 关闭文件
+fclose($file);
+```
+
+### 判断日期的合法性
+
+```php
+// 思路：先将日期转时间戳，再转回来，比较是否和原来的相同
+function test($str) {
+    if (date("Y-m-d H:i:s", strtotime($str)) == $str) {
+        return true;
+    }
+    return false;
+}
+```
+
+
+
+### 相对路径的计算
+
+写一个函数，算出两个文件的相对路径，如$a = '/a/b/c/d/e.php', $b = '/a/b/12/34/.c.php';
+
+计算出\$b相对于$a的相对路径应该是../../c/d
+
+```php
+// 思路
+```
+
+
+
+
+
 ### 问题
 
 ##### **写一段代码，找到所有子集合，如 [a,b,c] 的子集合有 {},{a},{b},{c},{ab},{ac},{abc}**

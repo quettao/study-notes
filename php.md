@@ -1929,7 +1929,11 @@ Contorller（控制器），Contorller 是用来处理用户 输入数据，已�
 
 ###### 修改session生存时间
 
-在 php.ini 中设置 session.gc_maxlifetime = 1440 //默认时间
+在 php.ini 中三个参数影响
+
+session.gc_probability,   session.gc_divisor,   session.gc_maxlifetime
+
+设置 session.gc_maxlifetime = 1440 //默认时间
 
 ```php
 // 代码实现
@@ -1938,7 +1942,9 @@ session_set_cookie_params($lifeTime);
 session_start();
 ```
 
+###### 禁用cookie后session还能用吗
 
+可以，默认不能用，因为默认情况下sessionid保存在cookie中，但是可以get传递，也可以直接开启透明的sid（需要关闭基于cookie的配置项）
 
 #### 43. **get 和 post 的区别**
 
@@ -2729,6 +2735,16 @@ Model（模型），是程序的主体部分，主要包含业务数据和业务
 View(视图），是程序呈现给用户的部分，是用户和程序交互的接口，用户会根据具体的业务需求，在 View 视图层输入自己特定的业务数据，并通过界面的事件交互，将对应的输入参数提交给后台控制器进行处理。
 
 Contorller（控制器），Contorller 是用来处理用户 输入数据，已经更新业务模型的部分。控制器中接收了用户与界面交互时传递过来的数据，并根据数据业务逻辑来执行服务的调用和更新业务模型的数据和状态。
+
+#### 69。 PHP的垃圾回收机制是怎样的？
+
+重点是引用计数(reference counting)
+
+##### 70.PHP进制问题
+
+给一个变量赋值为0123，但是输出该变量的值总是其他数值，请问这是什么问题？
+
+PHP解析器会把0开始的数字当做八进制，但输出的时候会把八进制转成10进制输出。
 
 ## PHP底层原理
 
