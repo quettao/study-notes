@@ -1599,6 +1599,79 @@ equire() 函数与 include() 函数相同，只是它处理错误的方式不同
 
 #### 25.PHP中的stdClass是什么？
 
+在PHP内核进行模块初始化操作时会自动加载这个函数， 这样，stdClass类的注册操作也就会被执行了。stdClass类是一个没有成员变量也没有成员方法的类。 它的所有的魔术方法，父类、接口等在初始化时都被设置成NULL。由于在PHP中对于一个类我们无法动态的添加方法， 所以这个类只能用来处理动态属性，这也是我们一种常见的用法。故以下方法不会触发set拦截器
+
+stdclass可以作为基类使用，其最大特点是，（其派生类）可以自动添加成员变量，而无须在定义时说明。
+
+使用方法：
+
+1、使用stdclass：
+
+```php
+$andy = array();
+$andy = (object)$andy;
+$andy->a = 1;
+$andy->b = 2;
+$andy->c = 3;
+```
+
+这样数量a、b、c就填进了stdclass里面。这样要省事，因为新建空对像却要$andy = new Andy; 而且还得先有个class Andy{}。又如：
+
+```php
+$a = new stdClass();
+$a->id = '11 ';
+$a->username = 'me';
+print_r($a); // stdClass Object ( [id] => 11 [username] => me ) 。
+```
+
+2、读取：
+
+```php
+stdClass Object
+(
+  [getWeatherbyCityNameResult] => stdClass Object
+    (
+      [string] => Array
+       (
+          [0] => 四川
+          [1] => 成都
+          [2] => 56294
+          [3] => 56294.jpg
+          [4] => 2009-5-17 13:52:08
+          [5] => 26℃/19℃
+          [6] => 5月17日 阴转阵雨
+        )
+    )
+)
+```
+
+其实和array差不多，只是访问方式改变一点就行，我们一般习惯使用array['key']这种方式来访问数组。
+对于这种stdClass来说，如上例，$weather->getWeatherbyCityNameResult->string[0]可以这样来访问属性，这个将得到结果“四川”。
+
+3、实例化，new。
+
+```php
+// 对比这两个代码：
+// 1
+$a = array(1=>2,2=>3);
+$a = (object)$a;
+$a->id = '11 ';
+$a->username = 'me';
+print_r($a); // stdClass Object ( [1] => 2 [2] => 3 [id] => 11 [username] => me ) 。
+
+// 2
+$a = array(1=>2,2=>3);
+$a = (object)$a;
+$a = new stdClass();
+$a->id = '11 ';
+$a->username = 'me';
+print_r($a); // stdClass Object ( [id] => 11 [username] => me ) 。
+```
+
+**原来用new实例化后，前面的数组清空，只留下后面添加进来的，如果不实例化，stdClass将保留所有元素。**
+
+
+
 stdClass 只是将其他类型强制转换为对象时使用的通用 " 空 '' 类。stdClass 不是 PHP 中对象的基类。这可以很容易地证明:
 
 ```php
@@ -1627,6 +1700,16 @@ $array = json_decode($json, true);
 echo $array['foo'].PHP_EOL; //"bar"
 echo $array['number'].PHP_EOL; //42
 ```
+
+**用途：**
+
+1、stdClass通过调用它们直接访问成员。
+
+2、它在动态对象中很有用。
+
+3、它用于设置动态属性等。
+
+
 
 #### 26.const和define的根本区别？
 
