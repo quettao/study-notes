@@ -1444,7 +1444,7 @@ golang在1.1之后引入了竞争检测机制，可以使用 go run -race 或者
 
 其在内部的实现是,开启多个协程执行同一个命令， 并且记录下每个变量的状态.
 
-竞争检测器基于C/C++的ThreadSanitizer运行时库，该库在Google内部代码基地和Chromium找到许多错误。这个技术在2012年九月集成到Go中，从那时开始，它已经在标准库中检测到42个竞争条件。现在，它已经是我们持续构建过程的一部分，当竞争条件出现时，它会继续捕捉到这些错误。
+竞争检测器基于C/C++的ThreadSanitizer运行时库，该库在Google内部代码基地和Chromium找到许多错误。这个技术在2012年九月集成到Go中，从那时开  ，它已经在标准库中检测到42个竞争条件。现在，它已经是我们持续构建过程的一部分，当竞争条件出现时，它会继续捕捉到这些错误。
 
 竞争检测器已经完全集成到Go工具链中，仅仅添加-race标志到命令行就使用了检测器。
 
@@ -1457,16 +1457,38 @@ $ go install -race mypkg // 安装程序
 
 要想解决数据竞争的问题可以使用互斥锁sync.Mutex,解决数据竞争(Data race),也可以使用管道解决,使用管道的效率要比互斥锁高.
 
-#### context包的用途
-
-````
-Context通常被译作上下文，它是一个比较抽象的概念，其本质，是【上下上下】存在上下层的传递，上会把内容传递给下。在Go语言中，程序单元也就指的是Goroutine
-````
-
 ####  slice，len，cap，共享，扩容 
 
-```text
-append函数，因为slice底层数据结构是，由数组、len、cap组成，所以，在使用append扩容时，会查看数组后面有没有连续内存快，有就在后面添加，没有就重新生成一个大的素组
+len：切片的长度，访问时间复杂度为O(1)，go的slice底层是对数组的引用。
+
+cap：切片的容量，扩容是以这个值为标准。默认扩容是2倍，当达到1024的长度后，按1.25倍。
+
+扩容：每次扩容slice底层都将先分配新的容量的内存空间，再将老的数组拷贝到新的内存空间，因为这个操作不是并发安全的。所以并发进行append操作，读到内存中的老数组可能为同一个，最终导致append的数据丢失。
+
+共享：slice的底层是对数组的引用，因此如果两个切片引用了同一个数组片段，就会形成共享底层数组。当sliec发生内存的重新分配（如扩容）时，会对共享进行隔断。详细见下面例子：
+
+```go
+    a := []int{1, 2, 3}
+    b := a[:2]
+    a[0] = 10
+    //此时a和b共享底层数组
+    fmt.Println(a, "a cap:", cap(a), "a len:", len(a))
+    fmt.Println(b, "b cap:", cap(b), "b len:", len(b))
+    fmt.Println("-----------")
+    b = append(b, 999)
+    //虽然b append了1,但是没有超出cap，所以未进行内存重新分配
+    //等同于b[2]=999，因此a[2]一并被修改
+    fmt.Println(a, "a cap:", cap(a), "a len:", len(a))
+    fmt.Println(b, "b cap:", cap(b), "b len:", len(b))
+    fmt.Println("-----------")
+    a[2] = 555 //同上，未重新分配，所以，a[2] b[2]都被修改
+    fmt.Println(a, "a cap:", cap(a), "a len:", len(a))
+    fmt.Println(b, "b cap:", cap(b), "b len:", len(b))
+    fmt.Println("-----------")
+    b = append(b, 777) //超出了cap，这时候b进行重新分配,b[3]=777,cap(b)=6
+    a[2] = 666         //这时候a和b不再共享
+    fmt.Println(a, "a cap:", cap(a), "a len:", len(a))
+    fmt.Println(b, "b cap:", cap(b), "b len:", len(b))
 ```
 
 ####  实现set 
@@ -1510,4 +1532,881 @@ func (s *Set) Add(item inter) {
 
 ####  单点登录，tcp粘包 ,  处理粘包断包实现 
 
-####  手写洗牌 
+####  golang中没有隐藏的this指针，这句话的含义是 ？
+
+ 方法施加的对象显式传递，没有被隐藏起来 
+
+ golang的面向对象表达更直观，对于面向过程只是换了一种语法形式来表达 
+
+ 方法施加的对象不需要非得是指针，也不用非得叫this 
+
+
+
+####  golang中的指针运算包括 ？
+
+ 可以通过“&”取指针的地址 
+
+ 可以通过“*”取指针指向的数据
+
+
+####  关于同步锁 ？
+
+ 当一个goroutine获得了Mutex后，其他goroutine就只能乖乖的等待，除非该goroutine释放这个Mutex 
+
+ RWMutex在读锁占用的情况下，会阻止写，但不阻止读 
+
+ RWMutex在写锁占用情况下，会阻止任何其他goroutine（无论读和写）进来，整个锁相当于由该goroutine独占 
+
+####   
+
+#### golang中大多数数据类型都可以转化为有效的JSON文本，下面几种类型除外 ？
+
+  channel    complex    函数 
+
+
+
+####  关于go vendor ？
+
+ 基本思路是将引用的外部包的源代码放在当前工程的vendor目录下面 
+
+ 编译go代码会优先从vendor目录先寻找依赖包 
+
+  有了vendor目录后，打包当前的工程代码到其他机器的$GOPATH/src下都可以通过编译 
+
+
+
+####  关于函数返回值的错误设计 ？
+
+  如果失败原因只有一个，则返回bool 
+
+ 如果失败原因超过一个，则返回error 
+
+ 如果没有失败原因，则不返回bool或error 
+
+  如果重试几次可以避免失败，则不要立即返回bool或error 
+
+
+
+####  关于异常设计？
+
+  在程序开发阶段，坚持速错，让程序异常崩溃 
+
+ 在程序部署后，应恢复异常避免程序终止 
+
+ 对于不应该出现的分支，使用异常处理 
+
+
+
+####  channel的特性 ？
+
+  给一个 nil channel 发送数据，造成永远阻塞 
+
+ 从一个 nil channel 接收数据，造成永远阻塞 
+
+ .给一个已经关闭的 channel 发送数据，引起 panic 
+
+  从一个已经关闭的 channel 接收数据，如果缓冲区中为空，则返回一个零值 
+
+
+
+####  无缓冲和有冲突的channel ？
+
+  无缓冲的channel是同步的，而有缓冲的channel是非同步的 
+
+```go
+func main() {
+   c := make(chan int)
+   go add(c)
+   go send(c)
+   // 给5秒时间让前两个goroutine有足够时间运行
+   time.Sleep(5 * time.Second)
+}
+
+// 不断向channel c中发送[0,10)的随机数
+func send(c chan int) {
+   for {
+      c <- rand.Intn(10)
+   }
+}
+func add(c chan int) {
+   sum := 0
+   // 1秒后，将向t.C通道发送时间点，使其可读
+   t := time.NewTimer(2 * time.Second)
+   for {
+      // 两秒内，将一直选择第一个case
+      // 两秒后，t.C可读，将选择第二个case
+      // c变成nil channel后，两个case分支都将一直阻塞
+      select {
+      case input := <-c:
+         // 不断读取c中的随机数据进行加总
+         sum = sum + input
+      case <-t.C:
+         c = nil
+         fmt.Println(sum)
+      }
+   }
+}
+```
+
+```go
+func main() {
+   c := make(chan int)
+   go send(c)
+   go receive(c)
+   // 给5秒时间让前两个goroutine有足够时间运行
+   time.Sleep(5 * time.Second)
+}
+
+// 不断向channel c中发送[0,10)的随机数
+func send(c chan int) {
+   for {
+      c <- rand.Intn(10)
+   }
+}
+
+func receive(c chan int) {
+   i := 0
+   t := time.NewTimer(1 * time.Second)
+   for {
+      select {
+      case <-t.C:
+         c = nil
+      case <-c:
+         fmt.Println(i)
+         i++
+      }
+   }
+}
+```
+
+
+
+####  关于异常的触发 ？
+
+ 空指针解析 
+
+ 下标越界 
+
+  除数为0 
+
+ 调用panic函数 
+
+
+
+#### go的调度
+
+go的调度原理是基于GMP模型，G代表一个goroutine，不限制数量；M=machine，代表一个线程，最大1万，所有G任务还是在M上执行；P=processor代表一个处理器，每一个允许的M都会绑定一个G，默认与逻辑CPU数量相等（通过runtime.GOMAXPROCS(runtime.NumCPU())设置）。
+
+ go调用过程： 
+
+```
+创建一个G对象
+
+如果还有空闲的的P，创建一个M
+
+M会启动一个底层线程，循环执行能找到的G
+
+G的执行顺序是先从本地队列找，本地没找到从全局队列找。一次性转移(全局G个数/P个数）个，再去其它P中找（一次性转移一半）
+
+以上的G任务是按照队列顺序执行（也就是go函数的调用顺序）。
+
+另外在启动时会有一个专门的sysmon来监控和管理，记录所有P的G任务计数schedtick。如果某个P的schedtick一直没有递增，说明这个P一直在执行一个G任务，如果超过一定时间就会为G增加标记，并且该G执行非内联函数时中断自己并把自己加到队尾。
+```
+
+
+
+#### context包的用途?
+
+ goroutine管理、信息传递。context的意思是上下文，在线程、协程中都有这个概念，它指的是程序单元的一个运行状态、现场、快照，包含。context在多个goroutine中是并发安全的。 
+
+ 应用场景： 
+
+1. 超时
+
+````go
+ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+    defer cancel()
+    ch := make(chan int)
+    t := time.Now().UnixNano()
+    t = t / 1000 / 1000
+    fmt.Println(t)
+    select {
+    case <-ch:
+    case <-ctx.Done():
+        //如果超过1秒钟ch未读取到信息，自动执行超时
+        fmt.Println(ctx.Err())
+    }
+    fmt.Println("耗时：",time.Now().UnixNano()/1000/1000 - t,"ms")
+````
+
+2. 通信并达到取消并发goroutine继续执行的目的。
+
+3. 数据传递
+
+4. client如何实现长连接
+
+
+
+#### map如何顺序读取
+
+map的底层是hash table(hmap类型)，对key值进行了hash，并将结果的低八位用于确定key/value存在于哪个bucket（bmap类型）。再将高八位与bucket的tophash进行依次比较，确定是否存在。出现hash冲撞时，会通过bucket的overflow指向另一个bucket，形成一个单向链表。每个bucket存储8个键值对。
+
+如果要实现map的顺序读取，需要使用一个slice来存储map的key并按照顺序进行排序。
+
+```go
+ m := make(map[int]int, 10)
+    keys := make([]int, 0, 10)
+    for i := 0; i < 10; i++ {
+        m[i] = i
+        keys = append(keys, i)
+    }
+    //降序
+    sort.Slice(keys, func(i, j int) bool {
+        if keys[i] > keys[j] {
+            return true
+        }
+        return false
+    })
+    for _, v := range keys {
+        fmt.Println(m[v])
+    }
+```
+
+
+
+#### 实现set？
+
+ 利用map，如果要求并发安全，就用sync.map 
+
+ 要注意下set中的delete函数需要使用 `delete(map)`来实现，但是这个并不会释放内存，除非value也是一个子map。当进行多次delete后，可以使用make来重建map。 
+
+
+
+go读文件的两种方式
+
+````go
+    filePath := "1G.txt"
+    filePath2 := "1G.txt"
+
+    //只读的形式打开文件。
+    //ps: os.OpenFile可以以读写方式打开
+    file, err := os.Open(filePath)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    file2, err := os.Open(filePath2)
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    defer file.Close()
+
+    //分片读取
+
+    //1024bit*8=1024byte=1kb
+    //1kb*1024=1m
+    //读取100M的内容
+    buffer := make([]byte, 1024*1024*100)
+    i := 0
+    for {
+        n, err := file.Read(buffer)
+        if err != nil && err != io.EOF {
+            fmt.Println("错误", err)
+            return
+        }
+        if n == 0 {
+            fmt.Println("结束")
+            break
+        }
+        i += n / 1024
+        fmt.Println("大小", i/1024, "KB")
+    }
+    fmt.Println("文件大小：", i/1024, "KB")
+
+    //流处理：
+    scanner := bufio.NewScanner(file2)
+    for scanner.Scan() {
+        fmt.Println(scanner.Bytes())
+    }
+````
+
+
+
+#### 死锁条件，如何避免？
+
+产生死锁的四个必要条件：
+
+（1） 互斥条件：一个资源每次只能被一个进程使用。
+ （2） 请求与保持条件：一个进程因请求资源而阻塞时，对已获得的资源保持不放。
+ （3） 不剥夺条件：进程已获得的资源，在末使用完之前，不能强行剥夺。
+ （4） 循环等待条件：若干进程之间形成一种头尾相接的循环等待资源关系。
+
+ 避免方法：
+
+1. 为表添加合理的索引。可以看到如果不走索引将会为表的每一行记录添加上锁，死锁的概率大大增加。
+2. 多个程序尽量约定以相同的顺序访问表（这也是解决并发理论中哲学家就餐问题的一种思路），以固定的顺序访问表和行。比如两个更新数据的事务，事务A更新数据的顺序为1，2；事务B更新数据的顺序为 2 ，1，这样更可能会造成死锁。
+3. 同一个事务尽可能做到一次锁定所需要的所有资源。
+
+#### defer的理解？
+
+##### defer两大特性
+
+- **延迟调用**: 在当前函数执行完成后调用执行。
+
+- **后进先出**: 多个defer函数时，执行顺序为后进先出。
+
+##### defer与return的执行顺序
+
+```go
+func f1() (r int){
+    defer func(){
+        r++
+    }()
+    return 0
+}
+
+func f2() (r int) {
+    t:=5
+    defer func() {
+        t = t+5
+    }()
+    return t
+}
+
+func f3() (r int) {
+    defer func(r int) {
+        r = r+5
+    }(r)
+    return 0
+}
+
+func main(){
+    fmt.Println(f1())
+    fmt.Println(f2())
+    fmt.Println(f3())
+}
+
+// 输出结果
+$ go run main.go
+1
+5
+0
+```
+
+ **return语句本身并不是一条原子指令**，它会先给返回值赋值，然后再是返回，如下 
+
+```go
+func f4() (r int) {
+    return 1
+}
+
+//执行过程：
+r:=1 //赋值
+ret //执行返回
+```
+
+ 而在含defer表达式时，函数返回的过程是这样的： 
+
+ **先给返回值赋值，然后调用defer表达式，最后再是返回结果** 
+
+ 即对于f1()来讲 
+
+```go
+func f1() (r int){
+    defer func(){
+        r++
+    }()
+    return 0
+}
+
+//执行过程：
+r:=0 //赋值
+r++  //defer
+ret  //r=1
+```
+
+ 对于f2来讲 
+
+````go
+func f2() (r int) {
+    t:=5
+    defer func() {
+        t = t+5
+    }()
+    return t
+}
+
+//执行过程
+t:=5
+r:=t
+t=t+5 //defer
+ret  //r=5
+````
+
+对于f3()来讲，在defer的时候传参r，其实是一个值拷贝。
+
+所以defer中对r的修改并不会影响返回值结果，助于理解把r换成t，结果是等同的，即等效为
+
+```go
+func f3() (r int) {
+    defer func(t int) {
+        t = t+5
+    }(r)
+    return 0
+}
+
+//执行过程
+r:=0
+t = r， t = t +5 //defer
+ret // r=0
+```
+
+##### defer的应用场景
+
+##### 场景一：资源释放
+
+我们在代码中使用资源时如：打开一个文件，很容易因为忘记释放或者由于逻辑上的错误导致资源没有关闭。这时候使用defer可以避免这种资源泄漏。不妨先看如下代码：
+
+```go
+file,_ := os.Open("test.txt")
+//process为业务逻辑处理
+if err:=process(file);err!=nil {
+  return
+}
+file.Close()
+```
+
+上面的代码即存在一个严重的问题，如 err!=nil 直接return后，会使得file.close() 关闭资源的语句没有执行，导致资源泄漏。
+
+且在经历了一串业务逻辑处理编写后，我们也很容易忘记关闭资源导致资源泄漏。所以应该牢记一个原则：在每个资源申请成功的后面都加上defer自动清理，不管该函数都多少个return，资源都会被正确的释放。
+
+ **正确的编写逻辑如下：** 
+
+```go
+file,_ := os.Open("test.txt")
+defer file.Close()
+//process为业务逻辑处理
+if err:=process(file);err!=nil {
+  return
+}
+```
+
+##### 场景二：异常捕获
+
+Golang中对于程序中的异常处理，没有try catch，但是有panic和recover。 当程序中抛出panic时，如果没有及时recover，会导致服务直接挂掉，造成很严重的后果，所以我们一般用recover来捕获异常。
+
+```go
+func main(){
+    defer func(){
+        if ok:=recover();ok!=nil{
+            fmt.Println("recover")
+        }
+  }()
+    panic("error")
+}
+```
+
+ **上面两个场景是我们必需要熟知的**，当然还可以利用defer的特性优雅的实现一些类似于代码追踪、记录函数的参数和返回值等。 
+
+##### 场景三： 代码追踪
+
+ 我们通过追踪程序进入或离开某个函数的信息，来测试此函数是否被执行。 
+
+```go
+func main(){
+    f1()
+    f2()
+}
+
+func f1(){
+    defer trace_leave(trace_enter("f1()"))
+    fmt.Println("f1()程序逻辑")
+}
+
+func f2(){
+    defer trace_leave(trace_enter("f2()"))
+    fmt.Println("f2()程序逻辑")
+}
+
+func trace_enter(msg string) string{
+    fmt.Println("enter: ",msg)
+    return msg
+}
+
+func trace_leave(msg string) {
+    fmt.Println("leave: ",msg)
+}
+
+// 输出结果如下：
+$go run main.go
+enter:  f1()
+f1()程序逻辑
+leave:  f1()
+enter:  f2()
+f2()程序逻辑
+leave:  f2()
+```
+
+##### 场景四： 打印函数的参数和返回值
+
+ 某函数的执行结果不符合预期，我们可以使用defer来一步到位的打印函数的参数和返回值，而非多处打印调试语句。 
+
+```go
+func main(){
+    func1("hello")
+}
+
+func func1(str string) ( res string) {
+    defer func() {
+        fmt.Printf("func1(%s) = %s", str, res)
+    }()
+    res = fmt.Sprintf("%s, jack!",str)
+    return
+}
+
+// 输出结果：
+$go run main.go
+func1(hello) = hello, jack!
+```
+
+
+
+#### 说说Go语言中，数组和切片的区别？
+
+切片的底层是数组 数组的长度是类型的一部分，不同的长度的数组，类型不是一致的
+
+1、 切片的长度可变，切片是一种类型 
+
+```go
+a := [3]int{1, 2, 3}
+b := [4]int{1, 2, 3}
+fmt.Printf("a 的类型为%s, b的类型为%s\n", reflect.TypeOf(a), reflect.TypeOf(b))
+fmt.Println(reflect.TypeOf(a) == reflect.TypeOf(b))
+   
+// a 的类型为[3]int, b的类型为[4]int
+// false
+
+as := a[0:2]
+bs := b[0:2]
+fmt.Printf("as的类型为%v,bs的类型为%v\n", reflect.TypeOf(as), reflect.TypeOf(bs))
+fmt.Println(reflect.TypeOf(as) == reflect.TypeOf(bs))
+   
+// as的类型为[]int,bs的类型为[]int
+// true
+```
+
+2/、数组是值类型,值传递，拷贝时会复制整个数组 
+
+ 而切片是引用类型，是对数组的一个连续片段的引用，引用传递 
+
+```go
+func main(){ 
+ arrayA := [2]int{100, 200}
+ var arrayB [2]int
+ arrayB = arrayA
+
+ fmt.Printf("arrayA : %v , %v\n", &arrayA[0], arrayA)
+ fmt.Printf("arrayB : %v , %v\n", &arrayB[0], arrayB)
+ testArray(arrayA)
+
+ fmt.Println()
+ 
+ sliceA := arrayA[0:1]
+ sliceB := sliceA
+ fmt.Printf("sliceA : %v , %v\n", &sliceA[0], sliceA)
+ fmt.Printf("sliceB : %v , %v\n", &sliceB[0], sliceB)
+ testSlice(sliceA)
+
+}
+func testArray(x [2]int) {
+ fmt.Printf("func Array : %v , %v\n", &x[0], x)
+}
+func testSlice(x []int) {
+ fmt.Printf("func Slice : %v , %v\n", &x[0], x)
+}
+/*
+arrayA : 0xc0000180b0 , [100 200]
+arrayB : 0xc0000180c0 , [100 200]
+func Array : 0xc000018110 , [100 200]
+
+sliceA : 0xc0000180b0 , [100]
+sliceB : 0xc0000180b0 , [100]
+func Slice : 0xc0000180b0 , [100]
+*/
+```
+
+3、 数组需要指定大小，不指定也会根据初始化自动推算出大小，不可改变 
+
+ 切片不需要指定大小，也可直接从数组中切片 
+
+```go
+c := [...]int{1,2,3,4}
+fmt.Printf("c 的类型为%s, 长度为%v\n", reflect.TypeOf(c), len(c))
+// c 的类型为[4]int, 长度为4
+
+cs := []int{1, 2, 3, 4}
+cs = append(cs, 5)
+fmt.Printf("cs 的类型为%s, 长度为%v\n", reflect.TypeOf(cs), len(cs))
+// cs 的类型为[]int, 长度为5
+```
+
+4、 切片数据结构 
+
+```go
+type slice struct {
+    array unsafe.Pointer // 指向数组的指针
+    len   int             // 当前切片的长度
+    cap   int             // 当前切片容量
+}
+```
+
+ 当长度一旦大于容量时，容量会按增长因子扩容，但是会导致空间的重新分配，切片此时指向了一个全新的数组 
+
+```go
+func main() {
+ arr := [4]int{1, 2, 3, 4}
+ sliceA := arr[:]
+ fmt.Printf("len(silceA) = %v, cap(sliceA) = %v\n", len(sliceA), cap(sliceA))
+ // len(silceA) = 4, cap(sliceA) = 4
+
+ // 修改arr的第一个元素值，sliceA的第一个元素值跟着变化
+ arr[0] = 5
+ fmt.Printf("sliceA = %v\n", sliceA)
+ // sliceA = [5 2 3 4]
+
+ // 给slice添加元素，导致slice扩容，空间重新分配
+ sliceA = append(sliceA, 6)
+ fmt.Printf("sliceA = %v\n", sliceA)
+ fmt.Printf("len(silceA) = %v, cap(sliceA) = %v\n", len(sliceA), cap(sliceA))
+ // sliceA = [5 2 3 4 6]
+ // len(silceA) = 5, cap(sliceA) = 8
+
+ // 修改arr的第一个元素值，发现sliceA的第一个元素值不在跟着变化
+ arr[0] = 7
+ fmt.Printf("arr = %v\n", arr)
+ fmt.Printf("sliceA = %v\n", sliceA)
+ // arr = [7 2 3 4]
+ // sliceA = [5 2 3 4 6]
+}
+```
+
+
+
+#### 说说go语⾔的同步锁
+
+```go
+// 未加锁
+var x = 0
+var waitGroup sync.WaitGroup
+
+func main() {
+    waitGroup.Add(2)
+    go add()
+    go add()
+    waitGroup.Wait()
+    fmt.Println(x)
+}
+
+func add() {
+    for i := 0; i < 10000; i++ {
+        y := x
+        y = y + 1
+        x = y
+    }
+    waitGroup.Done()
+}
+```
+
+```go
+// 加锁
+var x = 0
+var waitGroup sync.WaitGroup
+var mutex sync.Mutex
+
+func main() {
+    waitGroup.Add(2)
+    go add()
+    go add()
+    waitGroup.Wait()
+    fmt.Println(x)
+}
+
+func add() {
+    for i := 0; i < 10000; i++ {
+        mutex.Lock()
+        y := x
+        y = y + 1
+        x = y
+        mutex.UnLock()
+    }
+    waitGroup.Done()
+}
+```
+
+ 于此之外还有读写锁，即 
+
+```go
+var rwmutex sync.RWMutex
+rwmutex.Lock()// 加写锁，阻止其他读写获取锁
+rwmutex.RLock()// 加读锁，如果其他gorountine要获取读锁的话，会获得读锁，如果要获取写锁就会等待
+```
+
+
+
+####  在 Go 中如何使用多行字符串？
+
+ 使用反引号 “ 来包含多行字串，或使用 `+` 来连接多行字符串（注意换行会包含`\n`，缩进会包含 `\t`，空格没有转义符）： 
+
+```go
+func main() {
+   str1 := `
+ line1
+    line2
+`
+    str2 := "\n line1\n\t" +
+      "line2\n"
+    fmt.Println(str1 == str2) // true
+}
+```
+
+
+
+#### 如何获取命令行的参数？
+
+ 有两种方法： 
+
+ 使用 `os` 库，如： 
+
+```go
+  func main() {
+     args := os.Args
+     if args == nil  { // 校验参数并输出提示信息
+        return
+    }
+    fmt.Printf("%T\n", args)
+    fmt.Printf("%v\n", args)
+ }
+```
+
+ 可以看出 `os.Args` 接收到的参数是 string slice，元素分别是运行的程序名、多个参数值： 
+
+ ![img](go.assets/14078861-c1a5c99f08dec61e.webp) 
+
+ 使用 `flag` 库，步骤： 
+
+- 定义各个参数的类型、名字、默认值与提示信息
+- 解析
+- 获取参数值
+
+```go
+func main() {
+    name := flag.String("name", "", "Your name")
+    var age int
+    flag.IntVar(&age, "age", -1, "Your age")
+
+    flag.Parse()
+
+    println("name", *name)
+    println("age", age)
+}
+```
+
+ 注意上边获取参数值的两种方式，使用时也有所不同： 
+
+```go
+func Int(name string, value string, usage string) *string // 返回地址
+func IntVar(p *int, name string, value int, usage string) // 修改第一个参数值
+```
+
+ ![img](go.assets/14078861-59faad4dfd53b673.webp) 
+
+
+
+#### 如何在不输出的情况下格式化字符串？
+
+ 使用 `func Sprintf(format string, a ...interface{}) string` 即可，常用在手动组合 SQL 语句上： 
+
+```go
+func main() {
+    fmt.Println(formatSQL(20))
+}
+
+func formatSQL(id int) string {
+    return fmt.Sprintf("SELECT * FROM users WHERE id=%d", id)
+}
+```
+
+
+
+#### 考察 goroutine 的传值方式
+
+```go
+func main() {
+    runtime.GOMAXPROCS(1) // 强制使多个 goroutine 串行执行
+    wg := sync.WaitGroup{}
+    wg.Add(10)
+
+    for i := 0; i < 5; i++ {
+        go func() {
+            fmt.Println("i: ", i)
+            wg.Done()
+        }()
+        // time.Sleep(1 * time.Second)  // 此时将顺序输出 1 2 3 4 5 
+    }
+
+  for i := 0; i < 5; i++ {
+      go func(i int) {
+          fmt.Println("i: ", i)
+          wg.Done()
+      }(i)
+  }
+  wg.Wait()
+}
+```
+
+ 第一个 for 循环：以极快的速度分配完 5 个 goroutine，此时 `i` 的值为 5，gouroutine 得到的 `i` 都是 5 
+
+ 第二个 for 循环：每次都会将 `i` 的值拷贝一份传给 goroutine，得到的 `i` 不同，输出不同 
+
+ ![img](go.assets/14078861-0c6ca9482c474037.webp) 
+
+
+
+#### 考察 Go 的组合
+
+```go
+ type People struct{}
+ 
+ func (p *People) ShowA() {
+     fmt.Println("people showA")
+     p.ShowB()
+ }
+ func (p *People) ShowB() {
+     fmt.Println("people showB")
+ }
+
+
+ type Teacher struct {
+     People
+ }
+
+ func (t *Teacher) ShowB() {
+    fmt.Println("teacher showB")
+ }
+
+ func main() {
+    t := Teacher{}
+     t.ShowB()
+     t.ShowA()
+ }
+```
+
+第 13 行： `Teacher` 通过嵌入 `People` 来获取了 `ShowA()` 和 `showB()`
+
+第 16 行：`Teacher` 实现并覆盖了 `showB()`
+
+第 24 行：调用未覆盖的 `showA()`，因为它的 receiver 依旧是 People，相当于 People 调用
+
+ ![img](go.assets/14078861-6e104e3fb7902d50.webp) 
+

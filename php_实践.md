@@ -1,3 +1,7 @@
+---
+typora-root-url: ../study-notes
+---
+
 ### PHP 实践
 
 #### 1.单KEY业务，数据库水平切分架构实践
@@ -3632,7 +3636,10 @@ context 是一种表示上下文信息的数据结构，在Topology Organizer �
 
 
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> dade86f4c1242c0a6446efec55a40a1f76848897
 我们发现，上节描述的频次控制功能可以描述成一个规则 Output = R（product，ad_control,model），展开成如下两个具体
 
 规则 ：

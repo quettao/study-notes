@@ -1172,7 +1172,7 @@ M             1000
         $a = str_split($s);
         $r = 0;
         $p = 0;
-        foreach($a as $k) {
+        foreach($k as $a) {
             if ($p && $arr[$k] > $p) {
               // IV = I + V - I * 2 , 为什么是$p * 2 的原因
                 $r += $arr[$k] - $p * 2;
