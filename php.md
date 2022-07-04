@@ -512,7 +512,7 @@ PHP 默认并不支持多线程，要使用多线程需要安装 pthread 扩展�
 
 在传统多线程中，由于多个线程共享变量，所以可能会导致出现如下问题：
 
-1. 存在一个全局数组`$arr = array('a');`;
+1. 存在一个全局数组`$arr = array('a');
 2. A 线程获取数组长度为1;
 3. B 线程获取数组长度为1;
 4. A 线程 pop 出数组元素 `$a = array_pop($arr); $a = 'a';`;
@@ -881,7 +881,7 @@ Loader::addClassAlias([
     public static function register()
     {
         error_reporting(E_ALL);
-        set_error_handler([__CLASS__, 'appError']);
+        set_error_handler([__CLASS__, 'appError']); // __CLASS__ : 获取当前的类名
         set_exception_handler([__CLASS__, 'appException']);
         register_shutdown_function([__CLASS__, 'appShutdown']);
     }
@@ -1283,7 +1283,11 @@ if (is_null($repository)) {
 
 #### 1. php array 底层原理？
 
-array底层基于散列表实现
+array底层基于散列表(hash table)实现, 散列表是根据键（Key）直接访问内存存储位置的数据结构，  它的key - value 之间存在一个映射函数，可以根据 key 通过映射函数得到的散列值直接索引到对应的 value 值。 不考虑散列冲突，散列表的查找效率是非常高的，时间复杂度是 O(1) 。
+
+解决hash冲突：
+在冲突位置构造一个单向链表，将散列值相同的元素放到相同槽位对应的链表中。这个方法叫链地址法，PHP 数组就是采用这个方法解决散列冲突的问题。
+其具体实现是：将冲突的 Bucket 串成链表，这样中间映射表映射出的就不是某一个元素，而是一个 Bucket 链表，通过散列函数定位到对应的 Bucket 链表时，需要遍历链表，逐个对比 Key 值，继而找到目标元素。而每个 Bucket 之间的链接则是将原 value 的下标保存到新 value 的 zval.u2.next 里，新 value 放在当前位置上，从而形成一个单向链表。
 
 #### 2. 获取HTTP头文件？
 
@@ -2831,7 +2835,7 @@ PHP解析器会把0开始的数字当做八进制，但输出的时候会把八�
 
 #### 71. 接口幂等性问题
 
-幂等性：一个借口多次调用没有副作用
+幂等性：一个接口多次调用没有副作用
 
 场景：用户重复操作，代码重试，消息重复消费，网络波动等
 

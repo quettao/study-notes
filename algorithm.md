@@ -765,15 +765,15 @@ function shellSort(array $arr) :array {
    do {
        $step = $num = intval($num/2);
        // 对每组进行插入排序，将一个记录插入到已排序好的序列中，从而得到一个新的有序序列
-       for ($i = $step; $i < $length; $i++) {
-           if ($arr[$i] < $arr[$i - $step]) {
+       for ($i = $step; $i < $len; $i++) {
+          // if ($arr[$i] < $arr[$i - $step]) {
                $min = $arr[$i]; // 保存小的数
                for ($j = $i - $step; $j >= 0 && $min <$arr[$j]; $j-=$step) {
                    // 往后排
                    $arr[$j+ $step] = $arr[$j];
                }
                $arr[$j + $step] = $min;
-           }
+          // }
        }
    } while ($step > 1);
     return $arr;

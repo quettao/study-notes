@@ -1434,7 +1434,7 @@ func main() {
 
 
 
-### Go数据竞争怎么解决
+#### Go数据竞争怎么解决
 
 Data Race 问题可以使用互斥锁解决，或者也可以通过CAS无锁并发解决
 
@@ -1456,3 +1456,58 @@ $ go install -race mypkg // 安装程序
 ```
 
 要想解决数据竞争的问题可以使用互斥锁sync.Mutex,解决数据竞争(Data race),也可以使用管道解决,使用管道的效率要比互斥锁高.
+
+#### context包的用途
+
+````
+Context通常被译作上下文，它是一个比较抽象的概念，其本质，是【上下上下】存在上下层的传递，上会把内容传递给下。在Go语言中，程序单元也就指的是Goroutine
+````
+
+####  slice，len，cap，共享，扩容 
+
+```text
+append函数，因为slice底层数据结构是，由数组、len、cap组成，所以，在使用append扩容时，会查看数组后面有没有连续内存快，有就在后面添加，没有就重新生成一个大的素组
+```
+
+####  实现set 
+
+````go
+type inter interface{}
+type Set struct {
+    m map[inter]bool
+    sync.RWMutex
+}
+
+func New() *Set {
+    return &Set{
+    m: map[inter]bool{},
+    }
+}
+func (s *Set) Add(item inter) {
+    s.Lock()
+    defer s.Unlock()
+    s.m[item] = true
+}
+````
+
+####  Go的反射包怎么找到对应的方法 
+
+####  Go的channel（有缓冲和无缓冲） 
+
+####  退出程序时怎么防止channel没有消费完 
+
+####  手写循环队列 
+
+####  生产者消费者模式，手写代码 
+
+####  线段树了解吗？字典树？
+
+####  sync.Pool用过吗 
+
+####  证明二叉树的叶子节点跟度数为2的节点的关系 
+
+####  字符串解析为数字（考虑浮点型） 
+
+####  单点登录，tcp粘包 ,  处理粘包断包实现 
+
+####  手写洗牌 
