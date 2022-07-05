@@ -94,8 +94,6 @@ type hmap struct {
 
 - slice底层实现原理：
 
-- map进行有序的排序
-
 - 结构体不加tag可以转json字符串吗
 
 - go语言tcp udp具体实现原理
@@ -2096,7 +2094,7 @@ fmt.Println(reflect.TypeOf(as) == reflect.TypeOf(bs))
 // true
 ```
 
-2/、数组是值类型,值传递，拷贝时会复制整个数组 
+2、数组是值类型,值传递，拷贝时会复制整个数组 
 
  而切片是引用类型，是对数组的一个连续片段的引用，引用传递 
 
