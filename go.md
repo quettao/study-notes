@@ -1,4 +1,426 @@
-### GO
+## GO
+
+在线学习地址：https://www.topgoer.com/
+
+### 基础知识
+
+#### 并发编程
+
+##### goroutime
+
+```go
+var wg sync.WaitGroup
+func hello(i int) {
+    defer wg.Done() // goroutine结束就登记-1
+    fmt.Println("Hello Goroutine!", i)
+}
+
+func main() {
+    for i := 0; i < 10; i++ {
+        wg.Add(1) // 启动一个goroutine就登记+1
+        go hello(i)
+    }
+    wg.Wait() // 等待所有登记的goroutine都结束
+}
+```
+
+ 多次执行上面的代码，会发现每次打印的数字的顺序都不一致。这是因为10个goroutine是并发执行的，而goroutine的调度是随机的。 
+
+ 注意： 如果主协程退出了 ，其他任务也会停止
+
+##### runtime 包
+
+###### runtime.Gosched()
+
+  让出CPU时间片，重新等待安排任务 
+
+```go
+package main
+
+import (
+	"fmt"
+    "runtime"
+)
+
+func main() {
+    go func(s string) {
+        for i := 0; i < 2; i++ {
+            fmt.Println(s)
+        }
+    }("world")
+    
+    // 主协程
+    for i := 0; i < 2; i++ {
+        // 切一下， 再次分配任务
+        runtine.Gosched()
+        fmt.Println("hello")
+    }
+}
+```
+
+###### runtime.Goexit()
+
+退出当前协程
+
+```go
+package main
+
+import (
+    "fmt"
+    "runtime"
+)
+
+func main() {
+    go func() {
+        defer fmt.Println("A.defer")
+        func() {
+            defer fmt.Println("B.defer")
+            // 结束协程
+            runtime.Goexit()
+            defer fmt.Println("C.defer")
+            fmt.Println("B")
+        }()
+        fmt.Println("A")
+    }()
+    for {
+    }
+}
+```
+
+###### runtime.GOMAXPROCS
+
+ Go运行时的调度器使用GOMAXPROCS参数来确定需要使用多少个OS线程来同时执行Go代码。默认值是机器上的CPU核心数。例如在一个8核心的机器上，调度器会把Go代码同时调度到8个OS线程上（GOMAXPROCS是m:n调度中的n）。 
+
+ Go语言中可以通过runtime.GOMAXPROCS()函数设置当前程序并发时占用的CPU逻辑核心数。 
+
+ 我们可以通过将任务分配到不同的CPU逻辑核心上实现并行的效果，这里举个例子： 
+
+```go
+func a() {
+    for i := 1; i < 10; i++ {
+        fmt.Println("A:", i)
+    }
+}
+
+func b() {
+    for i := 1; i < 10; i++ {
+        fmt.Println("B:", i)
+    }
+}
+
+func main() {
+    runtime.GOMAXPROCS(1)
+    go a()
+    go b()
+    time.Sleep(time.Second)
+}
+```
+
+ 两个任务只有一个逻辑核心，此时是做完一个任务再做另一个任务。 将逻辑核心数设为2，此时两个任务并行执行，代码如下。 
+
+```go
+func a() {
+    for i := 1; i < 10; i++ {
+        fmt.Println("A:", i)
+    }
+}
+
+func b() {
+    for i := 1; i < 10; i++ {
+        fmt.Println("B:", i)
+    }
+}
+
+func main() {
+    runtime.GOMAXPROCS(2)
+    go a()
+    go b()
+    time.Sleep(time.Second)
+}
+```
+
+ Go语言中的操作系统线程和goroutine的关系： 
+
+- 1.一个操作系统线程对应用户态多个goroutine。
+- 2.go程序可以同时使用多个操作系统线程。
+- 3.goroutine和OS线程是多对多的关系，即m:n。
+
+###### channel
+
+ channel是一种类型，一种引用类型。声明通道类型的格式如下： 
+
+```go
+ var 变量 chan 元素类型
+
+var ch1 chan int   // 声明一个传递整型的通道
+var ch2 chan bool  // 声明一个传递布尔型的通道
+var ch3 chan []int // 声明一个传递int切片的通道
+```
+
+**创建channel**
+
+ 通道是引用类型，通道类型的空值是nil。 
+
+```go
+var ch chan int
+fmt.Println(ch) // nil
+```
+
+ 声明的通道后需要使用make函数初始化之后才能使用。 
+
+ 创建channel的格式如下： 
+
+```go
+make(chan 元素类型, [缓冲大小])
+
+// channel的缓冲大小是可选的。
+ch4 := make(chan int)
+ch5 := make(chan bool)
+ch6 := make(chan []int)
+```
+
+**channel操作**
+
+ 通道有发送（send）、接收(receive）和关闭（close）三种操作。 
+
+发送和接收都使用<-符号。
+
+现在我们先使用以下语句定义一个通道：
+
+```go
+ch := make(chan int)
+```
+
+**发送**
+
+将一个值发送到通道中
+
+```go
+chan <- 10 // 把10发送到ch中
+```
+
+**接收**
+
+从一个通道中接收值
+
+```go
+x := <- ch // 从ch中接收值并赋值给变量x
+<-ch // 从ch中接收值， 忽略结果
+```
+
+**关闭**
+
+```go
+close(ch)
+```
+
+ 关于关闭通道需要注意的事情是，只有在通知接收方goroutine所有的数据都发送完毕的时候才需要关闭通道。通道是可以被垃圾回收机制回收的，它和关闭文件是不一样的，在结束操作之后关闭文件是必须要做的，但关闭通道不是必须的。 
+
+ 关闭后的通道有以下特点： 
+
+```go
+1.对一个关闭的通道再发送值就会导致panic。
+2.对一个关闭的通道进行接收会一直获取值直到通道为空。
+3.对一个关闭的并且没有值的通道执行接收操作会得到对应类型的零值。
+4.关闭一个已经关闭的通道会导致panic。
+```
+
+**无缓冲的通 道**![img](go.assets/3.png) 
+
+ 无缓冲的通道又称为阻塞的通道。我们来看一下下面的代码： 
+
+```go
+func main() {
+    ch := make(chan int)
+    ch <- 10
+    fmt.Println("发送成功")
+}
+```
+
+ 上面这段代码能够通过编译，但是执行的时候会出现以下错误： 
+
+```go
+    fatal error: all goroutines are asleep - deadlock!
+
+    goroutine 1 [chan send]:
+    main.main()
+            .../src/github.com/pprof/studygo/day06/channel02/main.go:8 +0x54
+```
+
+ 为什么会出现deadlock错误呢？ 
+
+ 因为我们使用ch := make(chan int)创建的是无缓冲的通道，无缓冲的通道只有在有人接收值的时候才能发送值。就像你住的小区没有快递柜和代收点，快递员给你打电话必须要把这个物品送到你的手中，简单来说就是无缓冲的通道必须有接收才能发送。 
+
+ 上面的代码会阻塞在ch <- 10这一行代码形成死锁，那如何解决这个问题呢？ 
+
+ 一种方法是启用一个goroutine去接收值，例如： 
+
+```go
+func recv(c chan int) {
+    ret := <-c
+    fmt.Println("接收成功", ret)
+}
+func main() {
+    ch := make(chan int)
+    go recv(ch) // 启用goroutine从通道接收值
+    ch <- 10
+    fmt.Println("发送成功")
+}
+```
+
+ 无缓冲通道上的发送操作会阻塞，直到另一个goroutine在该通道上执行接收操作，这时值才能发送成功，两个goroutine将继续执行。相反，如果接收操作先执行，接收方的goroutine将阻塞，直到另一个goroutine在该通道上发送一个值。 
+
+ 使用无缓冲通道进行通信将导致发送和接收的goroutine同步化。因此，无缓冲通道也被称为同步通道。 
+
+**有缓冲的通道**
+
+ 解决上面问题的方法还有一种就是使用有缓冲区的通道。 
+
+ ![img](go.assets/4.png) 
+
+ 我们可以在使用make函数初始化通道的时候为其指定通道的容量，例如： 
+
+```go
+func main() {
+    ch := make(chan int, 1) // 创建一个容量为1的有缓冲区通道
+    ch <- 10
+    fmt.Println("发送成功")
+}
+```
+
+只要通道的容量大于零，那么该通道就是有缓冲的通道，通道的容量表示通道中能存放元素的数量。就像你小区的快递柜只有那么个多格子，格子满了就装不下了，就阻塞了，等到别人取走一个快递员就能往里面放一个。
+
+我们可以使用内置的len函数获取通道内元素的数量，使用cap函数获取通道的容量，虽然我们很少会这么做。
+
+**close()**
+
+ 可以通过内置的close()函数关闭channel（如果你的管道不往里存值或者取值的时候一定记得关闭管道） 
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    c := make(chan int)
+    go func() {
+        for i := 0; i < 5; i++ {
+            c <- i
+        }
+        close(c)
+    }()
+    for {
+        if data, ok := <-c; ok {
+            fmt.Println(data)
+        } else {
+            break
+        }
+    }
+    fmt.Println("main结束")
+}
+```
+
+**如何优雅的从通道循环取值**
+
+ 当通过通道发送有限的数据时，我们可以通过close函数关闭通道来告知从该通道接收值的goroutine停止等待。当通道被关闭时，往该通道发送值会引发panic，从该通道里接收的值一直都是类型零值。那如何判断一个通道是否被关闭了呢？ 
+
+ 我们来看下面这个例子： 
+
+```go
+// channel 
+func main() {
+    ch1 := make(chan int)
+    ch2 := make(chan int)
+    
+    // 开启goroutine将0~100的数发送到ch1中
+    go func() {
+        for i := 0; i < 100; i++ {
+            ch1 <- i
+        }
+        close(ch1)
+    }()
+    
+    // 开启goroutine从ch1 中接收值，并将该值的平方发送到ch2中
+    go func() {
+        for {
+            i, ok := <-ch1 // 通道关闭后再取值ok = false
+            if !ok {
+                break
+            }
+            ch2 <- i * i
+        }
+        close(ch2)
+    }()
+    
+    // 在主goroutine中从ch2中接收值打印
+    for i := range ch2 { // 通道关闭后会退出 for range 循环
+        fmt.Println(i)
+    }
+}
+```
+
+ 从上面的例子中我们看到有两种方式在接收值的时候判断通道是否被关闭，我们通常使用的是for range的方式。 
+
+**单向通道**
+
+ 有的时候我们会将通道作为参数在多个任务函数间传递，很多时候我们在不同的任务函数中使用通道都会对其进行限制，比如限制通道在函数中只能发送或只能接收。 
+
+ Go语言中提供了单向通道来处理这种情况。例如，我们把上面的例子改造如下： 
+
+```go
+package main
+
+import (
+	"fmt"
+)
+
+func counter(out chan<- int) {
+	for i := 0; i < 100; i++ {
+		out <- i
+	}
+	close(out)
+}
+
+func squarer(out chan<- int, in <-chan int) {
+	for i := range in {
+		out <- i * i
+	}
+
+	close(out)
+}
+
+func printer(in <-chan int) {
+	for i := range in {
+		fmt.Println(i)
+	}
+}
+
+func main() {
+	ch1 := make(chan int)
+	ch2 := make(chan int)
+
+	go counter(ch1)
+	go squarer(ch2, ch1)
+
+	printer(ch2)
+}
+
+```
+
+ 其中， 
+
+```go
+chan<- int是一个只能发送的通道，可以发送但是不能接收；
+<-chan int是一个只能接收的通道，可以接收但是不能发送。
+```
+
+ 在函数传参及任何赋值操作中将双向通道转换为单向通道是可以的，但反过来是不可以的。 
+
+###### 通道总结
+
+ channel常见的异常总结，如下图： 
+
+ ![通道总结](go.assets/1.png) 
 
 #### 基础问题
 
@@ -1946,6 +2368,8 @@ ret  //r=5
 
 所以defer中对r的修改并不会影响返回值结果，助于理解把r换成t，结果是等同的，即等效为
 
+
+
 ```go
 func f3() (r int) {
     defer func(t int) {
@@ -2407,4 +2831,137 @@ func main() {
 第 24 行：调用未覆盖的 `showA()`，因为它的 receiver 依旧是 People，相当于 People 调用
 
  ![img](go.assets/14078861-6e104e3fb7902d50.webp) 
+
+#### http 黏包
+
+##### 1. 为什么会出现粘包
+
+主要原因就是tcp数据传递模式是流模式，在保持长链接的时候就进行多次的收和发。
+
+“粘包”可发生在发送端也可发生在接收端：
+
+````
+1. 由Nagle算法造成的发送端的粘包：Nagle算法是一种改善网络传输效率的算法。简单来说就是当我们提交一段数据给TCP发送时，TCP并不立刻发送此段数据，而是等待一小段时间看看在等待期间是否还有要发送的数据，若有则会一次把这两段数据发送出去。
+2. 接收端接收不及时造成的接收端粘包：TCP会把接收到的数据存在自己的缓冲区中，然后通知应用层取数据。当应用层由于某些原因不能及时的把TCP的数据取出来，就会造成TCP缓冲区中存放了几段数据。
+````
+
+##### 2. 解决办法
+
+ 出现”粘包”的关键在于接收方不确定将要传输的数据包的大小，因此我们可以对数据包进行封包和拆包的操作。 
+
+ 封包：封包就是给一段数据加上包头，这样一来数据包就分为包头和包体两部分内容了(过滤非法包时封包会加入”包尾”内容)。包头部分的长度是固定的，并且它存储了包体的长度，根据包头长度固定以及包头中含有包体长度的变量就能正确的拆分出一个完整的数据包。 
+
+ 我们可以自己定义一个协议，比如数据包的前4个字节为包头，里面存储的是发送的数据的长度。 
+
+````go
+// socket_stick/proto/proto.go
+package proto
+
+import (
+    "bufio"
+    "bytes"*m, .
+    // 写入消息头
+    err := binary.Write(pkg, binary.LittleEndian, length)
+    if err != nil {
+        return nil, err
+    }
+    // 写入消息实体
+    err = binary.Write(pkg, binary.LittleEndian, []byte(message))
+    if err != nil {
+        return nil, err
+    }
+    return pkg.Bytes(), nil
+}
+
+// Decode 解码消息
+func Decode(reader *bufio.Reader) (string, error) {
+    // 读取消息的长度
+    lengthByte, _ := reader.Peek(4) // 读取前4个字节的数据
+    lengthBuff := bytes.NewBuffer(lengthByte)
+    var length int32
+    err := binary.Read(lengthBuff, binary.LittleEndian, &length)
+    if err != nil {
+        return "", err
+    }
+    // Buffered返回缓冲中现有的可读取的字节数。
+    if int32(reader.Buffered()) < length+4 {
+        return "", err
+    }
+
+    // 读取真正的消息数据
+    pack := make([]byte, int(4+length))
+    _, err = reader.Read(pack)
+    if err != nil {
+        return "", err
+    }
+    return string(pack[4:]), nil
+}
+````
+
+接下来在服务端和客户端分别使用上面定义的proto包的Decode和Encode函数处理数据。
+
+服务端代码如下：
+
+```go
+// socket_stick/server2/main.go
+
+func process(conn net.Conn) {
+    defer conn.Close()
+    reader := bufio.NewReader(conn)
+    for {
+        msg, err := proto.Decode(reader)
+        if err == io.EOF {
+            return
+        }
+        if err != nil {
+            fmt.Println("decode msg failed, err:", err)
+            return
+        }
+        fmt.Println("收到client发来的数据：", msg)
+    }
+}
+
+func main() {
+
+    listen, err := net.Listen("tcp", "127.0.0.1:30000")
+    if err != nil {
+        fmt.Println("listen failed, err:", err)
+        return
+    }
+    defer listen.Close()
+    for {
+        conn, err := listen.Accept()
+        if err != nil {
+            fmt.Println("accept failed, err:", err)
+            continue
+        }
+        go process(conn)
+    }
+}
+```
+
+ 客户端代码如下： 
+
+```go
+// socket_stick/client2/main.go
+
+func main() {
+    conn, err := net.Dial("tcp", "127.0.0.1:30000")
+    if err != nil {
+        fmt.Println("dial failed, err", err)
+        return
+    }
+    defer conn.Close()
+    for i := 0; i < 20; i++ {
+        msg := `Hello, Hello. How are you?`
+        data, err := proto.Encode(msg)
+        if err != nil {
+            fmt.Println("encode msg failed, err:", err)
+            return
+        }
+        conn.Write(data)
+    }
+}
+
+```
 

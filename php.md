@@ -2874,53 +2874,184 @@ mysql：可以直接 where amount>=current_amount and amount>0 …… , 或者�
 
 ### zval、数组的底层实现
 
+#### 1. PHP数组有哪些特性
 
+可以使用数字或字符串作为数组键值
 
-**PHP数组底层数据结构** 
+```php
+$arr = [1 => "ok", "one" => "hello"];
+```
 
- PHP 数组底层依赖的散列表数据结构定义如下（位于 Zend/zend_types.h）：
+可按顺序读取数组
+
+```php
+foreach ($arr as $key => $value) {
+    echo $arr[$key];
+}
+```
+
+可随机读取数组中的元素
+
+```php
+$arr = [1 => "ok", "one" => "hello", "a" => "world"];
+echo $srr["one"];
+echo current($arr);
+```
+
+数组的长度是可变的
+
+```php
+$arr[1, 2, 3];
+$arr[] = 4;
+array_push($arr, 5);
+```
+
+正是基于这些特性，我们可以使用PHP中的数组轻易的实现集合、栈、列表、字典等多种数据结构。
+
+#### 2. 数据结构
+
+```
+PHP 中的数组实际上是一个有序映射。映射是一种把 values 关联到 keys 的类型。
+```
+
+PHP数组的底层实现是散列表(也叫hashTable),散列表是根据键(key)直接访问内存存储位置的数据结构，它的key - value之间存在一个映射函数，可以根据 key 通过映射函数得到的散列值直接索引到对应的value值，无需通过关键字比较，在理想情况下，不考虑散列冲突，散列表的查找效率是非常高的，时间复杂度是O(1).
 
 ```c
-typedef struct _zend_array HashTable;
+typedef struct _zend_array zend_array;
+typedef struct _zend_array hashTable;
 
 struct _zend_array {
     zend_refcounted_h gc;
     union {
-       struct {
-           ZEND_ENDIAN_LOHI_4(
-               zend_uchar	flags,
-               zend_uchar	_unused,
-               zend_uchar	nIteratorsCount,
-               zend_uchar	_unused2)
-       } v;
+        struct {
+            ZEND_ENDIAN_LOHI_4(
+                    zend_uchar    flags,
+                    zend_uchar    nApplyCount,
+                    zend_uchar    nIteratorsCount,
+                    zend_uchar    reserve)
+        } v;
         uint32_t flags;
     } u;
-    // 用于散列函数映射存储元素在arData数组中的下标: nTableMask=~nTableSize+1
-    uint32_t		nTableMask;
-    // 存在元素数组，每个元素的结构统一为 Bucket, arData 指向第一个Bucket
-    Bucket		*arData;
-    // 已用Bucket 数 (包含无效元素)
-    uint32_t		nNumOfElements;
-    // 数组总容量(2的幂次方)
-    uint32_t		nTableSize;
-    uint32_t		nInternalPointer;
-    // 下一个可用的数值索引
-    zend_long		nNextFreeElement;
-    // 删除或覆盖数组中某个元素时对旧元素进行清理
-    dtor_func_t		pDestructor;
-}
+    uint32_t          nTableMask; // 哈希值计算掩码，等于nTableSize的负值(nTableMask = -nTableSize)
+    Bucket           *arData;     // 存储元素数组，指向第一个Bucket
+    uint32_t          nNumUsed;   // 已用Bucket数（含失效的 Bucket）
+    uint32_t          nNumOfElements; // 哈希表有效元素数
+    uint32_t          nTableSize;     // 哈希表总大小，为2的n次方（包括无效的元素）
+    uint32_t          nInternalPointer; // 内部指针，用于遍历
+    zend_long         nNextFreeElement; // 下一个可用的数值索引,如:arr[] = 1;arr["a"] = 2;arr[] = 3;  则nNextFreeElement = 2;
+    dtor_func_t       pDestructor;
+};
 ```
 
- 这个散列表中有很多成员，我们挑几个比较重要的来讲讲：
+该结构中的Bucket即储存元素的数组，arData指向数组的起始位置，使用映射函数对key值进行映射后可以得到偏移量，通过内存起始位置 + 偏移值即可在散列表中进行寻址操作。
 
-- arData：散列表中保存存储元素的数组，其内存是连续的，arData指向数组的起始位置；
-- nTableSize：数组的总容量，即可以容纳的元素数，arData 的内存大小就是根据这个值确定的，它的大小的是2的幂次方，最小为8，然后按照 8、16、32...依次递增；
-- nTableMask：这个值在散列函数根据 key 的哈希值映射元素的时候用到，它的值实际就是 nTableSize 的负数，即 nTableMask = -nTableSize，用位运算来表示就是 nTableMask = ~nTableSize+1；
-- nNumUsed、nNumOfElements：nNumUsed 是指数组当前使用的 Bucket 数，但不是数组有效元素个数，因为某个数组元素被删除后并没有立即从数组中删除，而是将其标记为 IS_UNDEF，只有在数组需要扩容时才会真正删除，nNumOfElements 则表示数组中有效的元素数量，即调用 count 函数返回值，如果没有扩容，nNumUsed 一直递增，无论是否删除元素；
-- nNextFreeElement：这个是给自动确定数值索引使用的，默认从 0 开始，比如 $arr[] = 200，这个时候 nNextFreeElement 值会自动加 1；
-- pDestructor：当删除或覆盖数组中的某个元素时，如果提供了这个函数句柄，则在删除或覆盖时调用此函数，对旧元素进行清理；
-- u：这个联合体结构主要用于一些辅助作用
+Bucket 的数据结构如下：
 
-### php内核源码介绍
+```php
+typedef struct _Bucket {
+    zval              val; // 存储的具体 value，这里是一个 zval，而不是一个指针
+    zend_ulong        h;   // 数字 key 或字符串 key 的哈希值。用于查找时 key 的比较    
+    zend_string      *key; // 当 key 值为字符串时，指向该字符串对应的 zend_string（使用数字索引时该值为 NULL），用于查找时 key 的比较
+} Bucket;
+```
 
-https://zhuanlan.zhihu.com/p/165932664
+到这里有个问题出现了：存储在散列表里的元素时无序的，PHP数组如何做到按顺序读取的呢？
+
+答案是中间映射表，为了实现散列表的有序性，PHP为其增加了一张中间映射表，该表时一个大小与Bucket相同的数组，数组中存储整形数据，用于保存元素实际存储的Value在Bucket中的下标。Bucket 中的数据是有序的，而中间映射表的数据是无序的。
+
+ ![img](php.assets/v2-df4527b21716176dd4aeb20940faaa6c_1440w.jpg) 
+
+而通过映射函数映射后的散列值要在中间映射表的区间内，这就对映射函数提出了要求。
+
+#### 3. 映射函数
+
+PHP7数组采用的映射方式：
+
+```php
+nIndex = h | ht->nTableMask;
+```
+
+将key经过time33算法生成的哈希值 h 和 nTableMask 进行或运算即可得出映射表的下标，其中nTableMask数值为nTableSize的负数。并且由于nTableSize的值为 2 的幂次方，所以 nTableMask二进制位右侧全部为0，保证了 h | ht->nTableMask的取值范围会在[-nTableSize, -1]之间，正好在映射表的下标范围内，另外，用按位或运算的方法和其他方法如取余的方法相比运算速度较高，这个映射函数可以说设计的非常巧妙。
+
+#### 4. 散列 (哈希) 冲突
+
+不同键名的通过映射函数计算得到的散列值有可能相同，此时便发生了散列冲突。
+
+对于散列冲突有以下 4 种常用方法：
+
+1.将散列值放到相邻的最近地址里
+
+2.换个散列函数重新计算散列值
+
+3.将冲突的散列值统一放到另一个地方
+
+4.在冲突位置构造一个单向链表，将散列值相同的元素放到相同槽位对应的链表中。这个方法叫链地址法，PHP 数组就是采用这个方法解决散列冲突的问题。
+
+其具体实现是： 将冲突的Bucket串成链表，这样中间映射表映射出的就不是某一个元素，而是一个Bucket链表，通过散列函数定位到对应的Bucket链表是，需要遍历链表，逐个对比Key值，继而找到目标元素。而每个Bucket之间的链接则是将原value的下标保存到新Value的zval.u2.next里，新value放在当前位置上，从而形成一个单向链表。
+
+举个例子：
+
+当我们访问 $arr['key'] 的过程中，假设首先通过散列运算得出映射表的下标为 -2 ，然后访问映射表发现其内容指向 arData 数组下标为 1 的元素。此时我们将该元素的key和要访问的键名相比较，发现两者并不相等，则该元素并非我们所想访问的元素，而元素的zval.u2.next保存的值正是另一个具有相同散列值的元素对应arData数组的下标，所以我们可以不断通过zval.u2.next的值遍历直到找到键名相同的元素。
+
+#### 5. 扩容
+
+PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素且没有空闲空间时，就会触发自动扩容机制，扩容后再执行插入。
+
+扩容的过程为：
+
+如果已删除元素所占比例达到阈值，则会移除已被删除的Bucket，然后将后面的Bucket向前补上空缺的Bucket，因为Bucket的下标发生了变动，索引还需要更改每个元素在中间映射表中存储的实际下标值。
+
+如果未达到阈值，PHP则会申请一个大小是原数组两倍的新数组，并将旧数组中的数据复制到新数组中，因为数组长度发生了改变，所以 key - value 的映射关系需要重新计算，这个步骤为重建索引。
+
+#### 6. 重建散列表
+
+ 在删除某一个数组元素时，会先使用标志位对该元素进行逻辑删除，即在删除 value 时只是将 value 的 type 设置为 IS_UNDEF，而不会立即删除该元素所在的 Bucket，因为如果每次删除元素立刻删除 Bucket 的话，每次都需要进行排列操作，会造成不必要的性能开销。 
+
+ 所以，当删除元素达到一定数量或扩容后都需要重建散列表，即移除被标记为删除的 value。因为 value 在 Bucket 位置移动了或哈希数组 nTableSize 变化了导致 key 与 value 的映射关系改变，重建过程就是遍历 Bucket 数组中的 value，然后重新计算映射值更新到散列表。 
+
+ **补充一下：**packed array数组的nIndex索引数组始终为2，而不是和bucket的数量一样，当packed array数组转成hash array时候nIndex索引数组数量才和bucket数量一样。 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
