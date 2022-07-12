@@ -8,6 +8,312 @@
 
 最后是两种特殊类型：resource（资源）、NULL（NULL）
 
+#### php 内存管理
+
+##### 查看PHP脚本内存使用情况
+
+```php
+# 使用memory_get_usage() 获取当前分配给你的PHP脚本的内存量，单位是字节。
+
+# 使用memory_get_peak_usage() 获取分配给你的PHP脚本的内存峰值字节数。
+
+# PHP中的选项memory_limit，指定了脚本允许申请的最大内存量，单位是字节。如果没有限制，将这个值设置为-1。
+
+# 例子：
+
+echo "初始: ".memory_get_usage()."B\n";
+
+$str = str_repeat('hello', 1000);
+
+echo "使用: ".memory_get_usage()."B\n";
+
+unset($str);
+
+echo "释放: ".memory_get_usage()."B\n";
+
+echo "峰值: ".memory_get_peak_usage()."B\n";
+
+# 输出
+
+# 初始: 230688B
+
+# 使用: 235880B
+
+# 释放: 230720B
+
+# 峰值: 236928B
+```
+
+##### PHP内存管理
+
+PHP采取“预分配方案”，提前向操作系统申请一个chunk（2M，利用到hugepage特性），并且将这2M内存切割为不同规格（大小）的若干内存块，当程序申请内存时，直接查找现有的空闲内存块即可；
+
+PHP将内存分配请求分为3种情况：
+
+huge内存：针对大于2M-4K（2M减去4K）的分配请求，直接调用mmap分配；
+
+large内存：针对小于2M-4K，大于3K的分配请求，在chunk上查找满足条件的若干个连续page；
+
+small内存：针对小于3K的分配请求；PHP拿出若干个页切割为8字节大小的内存块，拿出若干个页切割为16字节大小的内存块，24字节，32字节等等，将其组织成若干个空闲链表；每当有分配请求时，只在对应的空闲链表获取一个内存块即可；
+
+##### PHP内存管理器数据模型
+
+###### 1. 结构体
+
+PHP需要记录申请的所有chunk，需要记录chunk中page的使用情况，要记录每种规格内存的空闲链表，要记录使用mmap分配的huge内存，等等…
+
+于是有了以下两个结构体：
+_zend_mm_heap记录着内存管理器所需的所有数据：
+
+```c
+//省略了结构体中很多字段
+struct _zend_mm_heap {    //统计
+    size_t             size;                    /* current memory usage */
+    size_t             peak;                    /* peak memory usage */
+    //由于“预分配”方案，实际使用内存和向操作系统申请的内存大小是不一样的；
+    size_t             real_size;               /* current size of allocated pages */
+    size_t             real_peak;               /* peak size of allocated pages */
+ 
+    //small内存分为30种；free_slot数组长度为30；数组索引上挂着内存空闲链表
+    zend_mm_free_slot *free_slot[ZEND_MM_BINS]; /* free lists for small sizes */
+ 
+    //内存限制
+    size_t             limit;                   /* memory limit */
+    int                overflow;                /* memory overflow flag */
+ 
+    //记录已分配的huge内存
+    zend_mm_huge_list *huge_list;               /* list of huge allocated blocks */
+ 
+    //PHP会分配若干chunk，记录当前主chunk首地址
+    zend_mm_chunk     *main_chunk;     
+    //统计chunk数目
+    int                chunks_count;            /* number of alocated chunks */
+    int                peak_chunks_count;       /* peak number of allocated chunks for current request */ 
+}
+```
+
+_zend_mm_chunk记录着当前chunk的所有数据
+
+```c
+struct _zend_mm_chunk {    //指向heap
+    zend_mm_heap      *heap;    //chunk组织为双向链表
+    zend_mm_chunk     *next;
+    zend_mm_chunk     *prev;    //当前chunk空闲page数目
+    uint32_t           free_pages;              /* number of free pages */
+    //当前chunk最后一个空闲的page位置
+    uint32_t           free_tail;               /* number of free pages at the end of chunk */
+    //每当申请一个新的chunk时，这个chunk的num会递增
+    uint32_t           num;    //预留
+    char               reserve[64 - (sizeof(void*) * 3 + sizeof(uint32_t) * 3)];    //指向heap，只有main_chunk使用
+    zend_mm_heap       heap_slot;               /* used only in main chunk */
+    //记录512个page的分配情况；0代表空闲，1代表已分配
+    zend_mm_page_map   free_map;                /* 512 bits or 64 bytes */
+    //记录每个page的详细信息，
+    zend_mm_page_info  map[ZEND_MM_PAGES];      /* 2 KB = 512 * 4 */
+};
+```
+
+###### 2. small内存
+
+small内存分为30种规格，每种规格的空闲内存都挂在_zend_mm_heap结构体的free_slot数组上；
+
+30种规格内存如下：
+
+```c
+//宏定义：第一列表示序号（称之为bin_num），第二列表示每个small内存的大小（字节数）；//第四列表示每次获取多少个page；第三列表示将page分割为多少个大小为第一列的small内存；#define ZEND_MM_BINS_INFO(_, x, y) \
+    _( 0,    8,  512, 1, x, y) \
+    _( 1,   16,  256, 1, x, y) \
+    _( 2,   24,  170, 1, x, y) \
+    _( 3,   32,  128, 1, x, y) \
+    _( 4,   40,  102, 1, x, y) \
+    _( 5,   48,   85, 1, x, y) \
+    _( 6,   56,   73, 1, x, y) \
+    _( 7,   64,   64, 1, x, y) \
+    _( 8,   80,   51, 1, x, y) \
+    _( 9,   96,   42, 1, x, y) \
+    _(10,  112,   36, 1, x, y) \
+    _(11,  128,   32, 1, x, y) \
+    _(12,  160,   25, 1, x, y) \
+    _(13,  192,   21, 1, x, y) \
+    _(14,  224,   18, 1, x, y) \
+    _(15,  256,   16, 1, x, y) \
+    _(16,  320,   64, 5, x, y) \
+    _(17,  384,   32, 3, x, y) \
+    _(18,  448,    9, 1, x, y) \
+    _(19,  512,    8, 1, x, y) \
+    _(20,  640,   32, 5, x, y) \
+    _(21,  768,   16, 3, x, y) \
+    _(22,  896,    9, 2, x, y) \
+    _(23, 1024,    8, 2, x, y) \
+    _(24, 1280,   16, 5, x, y) \
+    _(25, 1536,    8, 3, x, y) \
+    _(26, 1792,   16, 7, x, y) \
+    _(27, 2048,    8, 4, x, y) \
+    _(28, 2560,    8, 5, x, y) \
+    _(29, 3072,    4, 3, x, y)
+ 
+#endif /* ZEND_ALLOC_SIZES_H */
+```
+
+只有这个宏定义有些功能不好用程序实现，比如bin_num=15时，获得此种small内存的字节数？分配此种small内存时需要多少page呢？
+于是有了以下3个数组的定义：
+
+```c
+//bin_pages是一维数组，数组大小为30，数组索引为bin_num，//数组元素为ZEND_MM_BINS_INFO宏中的第四列#define _BIN_DATA_PAGES(num, size, elements, pages, x, y) pages,static const uint32_t bin_pages[] = {
+  ZEND_MM_BINS_INFO(_BIN_DATA_PAGES, x, y)
+};
+//bin_elements是一维数组，数组大小为30，数组索引为bin_num，//数组元素为ZEND_MM_BINS_INFO宏中的第三列#define _BIN_DATA_ELEMENTS(num, size, elements, pages, x, y) elements,static const uint32_t bin_elements[] = {
+  ZEND_MM_BINS_INFO(_BIN_DATA_ELEMENTS, x, y)
+};
+//bin_data_size是一维数组，数组大小为30，数组索引为bin_num，//数组元素为ZEND_MM_BINS_INFO宏中的第二列#define _BIN_DATA_SIZE(num, size, elements, pages, x, y) size,static const uint32_t bin_data_size[] = {
+  ZEND_MM_BINS_INFO(_BIN_DATA_SIZE, x, y)
+};
+```
+
+###### small内存分配方案
+
+PHP将small内存分为30种不同大小的规格；
+
+每种大小规格的空闲内存会组织为链表，挂在数组_zend_mm_heap结构体的free_slot[bin_num]索引上；
+
+![img](php.assets/v2-c7347deecd68da06ad35d4f0ab24e238_1440w.jpg)
+
+free_slot字段的定义：
+
+```c
+zend_mm_free_slot *free_slot[ZEND_MM_BINS];
+ struct zend_mm_free_slot {
+    zend_mm_free_slot *next_free_slot;};
+```
+
+可以看出空闲内存链表的每个节点都是一个zend_mm_free_slot结构体，其只有一个next指针字段；
+
+**思考：对于8字节大小的内存块，其next指针就需要占8字节的空间，那用户的数据存储在哪里呢？**
+答案：free_slot是small内存的空闲链表，空闲指的是未分配内存，此时是不需要存储其他数据的；当分配给用户时，此节点会从空闲链表删除，也就不需要维护next指针了；用户可以在8字节里存储任何数据；
+
+**假设调用 void*ptr=emalloc(8)分配了一块内存；调用efree(ptr)释放内存时，PHP如何知道这块内存的字节数呢？**
+
+任何内存分配器都需要额外的数据结构来标志其管理的每一块内存：空闲/已分配，内存大小等；PHP也不例外；可是我们发现使用emalloc(8)分配内存时，其分配的就只是8字节的内存，并没有额外的空间来存储这块内存的任何属性；
+
+观察small内存宏定义ZEND_MM_BINS_INFO；我们发现对于每一个page，其只可能被分配为同一种规格；不可能存在一部分分割为8字节大小，一部分分割为16字节大小；也就是说每一个page的所有small内存块属性是相同的；那么只需要记录每一个page的属性即可；
+
+**如何知道这块内存应该插入哪个空闲链表呢？**
+
+large内存是同样的思路；申请large内存时，可能需要占若干个page的空间；但是同一个page只会属于一个large内存，不可能将一个page的一部分分给某个large内存；
+答案：不管page用于small内存还是large内存分配，只需要记录每一个page的属性即可，PHP将其记录在zend_mm_chunk结构体的zend_mm_page_info map[ZEND_MM_PAGES]字段；长度为512的int数组；对任一块内存，只要能计算出属于哪一个页，就能得到其属性（内存大小）；
+
+**Small分配**
+
+前面说过small空闲内存会形成链表，挂在zen_mm_heap字段free_slot[bin_num]上；
+
+最初请求分配时，free_slot[bin_num]可能还没有初始化，指向null；此时需要向chunk分配若干页，将页分割为大小相同的内存块，形成链表，挂在free_slot[bin_num]
+
+**对任意地址p，如何计算页号？**
+
+地址p减去chunk首地址获得偏移量；偏移量除4K即可；问题是如何获得chunk首地址？我们看看源码：
+
+```c
+chunk = (zend_mm_chunk*)ZEND_MM_ALIGNED_BASE(bin, ZEND_MM_CHUNK_SIZE);
+page_num = ZEND_MM_ALIGNED_OFFSET(bin, ZEND_MM_CHUNK_SIZE) / ZEND_MM_PAGE_SIZE; 
+#define ZEND_MM_ALIGNED_OFFSET(size, alignment) \
+    (((size_t)(size)) & ((alignment) - 1))#define ZEND_MM_ALIGNED_BASE(size, alignment) \
+    (((size_t)(size)) & ~((alignment) - 1))#define ZEND_MM_SIZE_TO_NUM(size, alignment) \
+    (((size_t)(size) + ((alignment) - 1)) / (alignment))
+```
+
+我们发现计算偏移量或chunk首地址时，需要两个参数：size，地址p；alignment，调用时传的是ZEND_MM_CHUNK_SIZE（2M）；
+
+其实PHP在申请chunk时，额外添加了一个条件：chunk首地址2M字节对齐；
+
+![img](php.assets/v2-e6be28a7bff15758a31c3aa78f2ca992_1440w.jpg)
+
+如图，2M字节对齐时，给定任意地址p，p的低21位即地址p相对于chunk首地址的偏移量；
+
+###### large内存分配
+
+需要从chunk中查找连续pages_count个空闲的页；zend_mm_chunk结构体的free_map为512个比特，记录着每个页空闲还是已分配；
+
+以64位机器为例，free_map又被分为8组；每组64比特，看作uint32_t类型；
+
+看看PHP是如何高效查找0比特位置的：依然是二分查找
+
+```c
+static zend_always_inline int zend_mm_bitset_nts(zend_mm_bitset bitset){    int n=0;//64位机器才会执行#if SIZEOF_ZEND_LONG == 8
+    if (sizeof(zend_mm_bitset) == 8) {        if ((bitset & 0xffffffff) == 0xffffffff) {n += 32; bitset = bitset >> Z_UL(32);}
+    }#endif
+    if ((bitset & 0x0000ffff) == 0x0000ffff) {n += 16; bitset = bitset >> 16;}    if ((bitset & 0x000000ff) == 0x000000ff) {n +=  8; bitset = bitset >>  8;}    if ((bitset & 0x0000000f) == 0x0000000f) {n +=  4; bitset = bitset >>  4;}    if ((bitset & 0x00000003) == 0x00000003) {n +=  2; bitset = bitset >>  2;}    return n + (bitset & 1);
+}
+```
+
+
+
+###### huge内存分配：
+
+```text
+//#define ZEND_MM_ALIGNED_SIZE_EX(size, alignment) \
+    (((size) + ((alignment) - Z_L(1))) & ~((alignment) - Z_L(1)))
+ //会将size扩展为2M字节的整数倍；直接调用分配chunk的函数申请内存//huge内存以n*2M字节对齐的static void *zend_mm_alloc_huge(zend_mm_heap *heap, size_t size){    size_t new_size = ZEND_MM_ALIGNED_SIZE_EX(size, MAX(REAL_PAGE_SIZE, ZEND_MM_CHUNK_SIZE));     
+    void *ptr = zend_mm_chunk_alloc(heap, new_size, ZEND_MM_CHUNK_SIZE);    return ptr;
+}
+```
+
+
+
+###### 内存释放
+
+```c
+ZEND_API void ZEND_FASTCALL _efree(void *ptr)
+{
+    zend_mm_free_heap(AG(mm_heap), ptr);
+} 
+static zend_always_inline void zend_mm_free_heap(zend_mm_heap *heap, void *ptr){    //计算当前地址ptr相对于chunk的偏移
+    size_t page_offset = ZEND_MM_ALIGNED_OFFSET(ptr, ZEND_MM_CHUNK_SIZE); 
+    //偏移为0，说明是huge内存，直接释放
+    if (UNEXPECTED(page_offset == 0)) {        if (ptr != NULL) {
+            zend_mm_free_huge(heap, ptr);
+        }
+    } else {        //计算chunk首地址
+        zend_mm_chunk *chunk = (zend_mm_chunk*)ZEND_MM_ALIGNED_BASE(ptr, ZEND_MM_CHUNK_SIZE);        //计算页号
+        int page_num = (int)(page_offset / ZEND_MM_PAGE_SIZE);        //获得页属性信息
+        zend_mm_page_info info = chunk->map[page_num]; 
+        //small内存
+        if (EXPECTED(info & ZEND_MM_IS_SRUN)) {
+            zend_mm_free_small(heap, ptr, ZEND_MM_SRUN_BIN_NUM(info));
+        }        //large内存
+        else /* if (info & ZEND_MM_IS_LRUN) */ {            int pages_count = ZEND_MM_LRUN_PAGES(info);             //将页标记为空闲
+            zend_mm_free_large(heap, chunk, page_num, pages_count);
+        }
+    }
+}static zend_always_inline void zend_mm_free_small(zend_mm_heap *heap, void *ptr, int bin_num){
+    zend_mm_free_slot *p;    //插入空闲链表头部即可
+    p = (zend_mm_free_slot*)ptr;
+    p->next_free_slot = heap->free_slot[bin_num];
+    heap->free_slot[bin_num] = p;
+}
+```
+
+######  PHP内存管理器初始化流程
+
+![img](php.assets/v2-e59dfac166b8c28177c5f5a6960e7fbb_1440w.jpg)
+
+###### PHP内存管理总结
+
+1）需要明白一点：任何内存分配器都需要额外的数据结构来记录内存的分配情况；
+
+2）内存池是代替直接调用malloc/free、new/delete进行内存管理的常用方法；内存池中空闲内存块组织为链表结果，申请内存只需要查找空闲链表即可，释放内存需要将内存块重新插入空闲链表；
+
+3）PHP采用预分配内存策略，提前向操作系统分配2M字节大小内存，称为chunk；同时将内存分配请求根据字节大小分为small、huge、large三种；
+
+4）small内存，采用“分离存储”思想；将空闲内存块按照字节大小组织为多个空闲链表；
+
+5）large内存每次回分配连续若干个页，采用最佳适配算法；
+
+6）huge内存直接使用mmap函数向操作系统申请内存（申请大小是2M字节整数倍）；
+
+7）chunk中的每个页只会被切割为相同规格的内存块；所以不需要再每个内存块添加头部，只需要记录每个页的属性即可；
+
+8）如何方便根据地址计算当前内存块属于chunk中的哪一个页？PHP分配的chunk都是2M字节对齐的，任意地址的低21位即是相对chunk首地址，除以页大小则可获得页号；
+
 ### php 内置缓存
 
 #### 1. ob缓存
@@ -120,6 +426,238 @@ $cache_file = $cache_dir.'/'.$file_name; //缓存文件存放路径
     		unlink($cache_file); //不是GET的请求就删除缓存文件。
 		} 
 	} 
+```
+
+
+
+### 用C开发PHP扩展
+
+https://www.laruence.com/2009/04/28/719.html
+
+假设你正在开发一个网站，需要一个把字符串重复n次的函数。下面是用PHP写的例子：
+
+```php
+function self_concat($string, $n){
+    $result = "";
+    for($i = 0; $i < $n; $i++){
+        $result .= $string;
+    }
+    return $result;
+}
+self_concat("One", 3) // OneOneOne
+self_concat("One", 1) // One
+```
+
+为扩展建立函数的第一步是写一个函数定义文件，该函数定义文件定义了扩展对外提供的函数原形。该例中，定义函数只有一行函数原形self_concat() :
+
+```c
+string self_concat(string str, int n)
+```
+
+函数定义文件的一般格式是一个函数一行。你可以定义可选参数和使用大量的PHP类型，包括: bool, float, int, array等。
+
+保存为myfunctions.def文件至PHP原代码目录树下。
+
+该是通过扩展骨架(skeleton)构造器运行函数定义文件的时机了。该构造器脚本叫ext_skel，放在PHP原代码目录树的ext/目录下（PHP原码主目录下的README.EXT_SKEL提供了更多的信息）。假设你把函数定义保存在一个叫做myfunctions.def的文件里，而且你希望把扩展取名为myfunctions，运行下面的命令来建立扩展骨架
+
+```
+./ext_skel --extname=myfunctions --proto=myfunctions.def
+```
+
+这个命令在ext/目录下建立了一个myfunctions/目录。你要做的第一件事情也许就是编译该骨架，以便编写和测试实际的C代码。编译扩展有两种方法：
+
+- 作为一个可装载模块或者DSO（动态共享对象）
+
+- 静态编译到PHP
+
+  ![img](php.assets/php_extension.jpg)
+
+
+
+因为第二种方法比较容易上手，所以本章采用静态编译。如果你对编译可装载扩展模块感兴趣，可以阅读PHP原代码根目录下的README.SELF-CONTAINED_EXTENSIONS文件。为了使扩展能够被编译，需要修改扩展目录ext/myfunctions/下的config.m4文件。扩展没有包裹任何外部的C库，你需要添加支持--enable-myfunctions配置开关到PHP编译系统里（–with-extension 开关用于那些需要用户指定相关C库路径的扩展）。可以去掉自动生成的下面两行的注释来开启这个配置。
+
+```
+./ext_skel --extname=myfunctions --proto=myfunctions.def
+PHP_ARG_ENABLE(myfunctions, whether to enable myfunctions support,
+[ --enable-myfunctions                Include myfunctions support])
+```
+
+现在剩下的事情就是在PHP原代码树根目录下运行./buildconf，该命令会生成一个新的配置脚本。通过查看./configure --help输出信息，可以检查新的配置选项是否被包含到配置文件中。现在，打开你喜好的配置选项开关和--enable-myfunctions重新配置一下PHP。最后的但不是最次要的是，用make来重新编译PHP。
+ext_skel应该把两个PHP函数添加到你的扩展骨架了：打算实现的self_concat()函数和用于检测myfunctions 是否编译到PHP的confirm_myfunctions_compiled()函数。完成PHP的扩展开发后，可以把后者去掉。
+
+```php
+<?php
+print confirm_myfunctions_compiled("myextension");
+?>
+```
+
+运行这个脚本会出现类似下面的输出：
+
+```
+"Congratulations! You have successfully modified ext/myfunctions
+config.m4. Module myfunctions is now compiled into PHP."
+```
+
+另外，ext_skel脚本生成一个叫myfunctions.php的脚本，你也可以利用它来验证扩展是否被成功地编译到PHP。它会列出该扩展所支持的所有函数。
+
+现在你学会如何编译扩展了，该是真正地研究self_concat()函数的时候了。
+下面就是ext_skel脚本生成的骨架结构：
+
+```C
+/* {{{ proto string self_concat(string str, int n)
+*/
+PHP_FUNCTION(self_concat)
+{
+char *str = NULL;
+int argc = ZEND_NUM_ARGS();
+int str_len;
+long n;
+if (zend_parse_parameters(argc TSRMLS_CC, "sl", &str, &str_len, &n) == FAILURE)
+return;
+php_error(E_WARNING, "self_concat: not yet implemented");
+}
+/* }}} */
+```
+
+自动生成的PHP函数周围包含了一些注释，这些注释用于自动生成代码文档和vi、Emacs等编辑器的代码折叠。函数自身的定义使用了宏PHP_FUNCTION()，该宏可以生成一个适合于Zend引擎的函数原型。逻辑本身分成语义各部分，取得调用函数的参数和逻辑本身。
+为了获得函数传递的参数，可以使用zend_parse_parameters()API函数。下面是该函数的原型：
+
+```c
+zend_parse_parameters(int num_args TSRMLS_DC, char *type_spec, …);
+```
+
+第一个参数是传递给函数的参数个数。通常的做法是传给它ZEND_NUM_ARGS()。这是一个表示传递给函数参数总个数的宏。第二个参数是为了线程安全，总是传递TSRMLS_CC宏，后面会讲到。第三个参数是一个字符串，指定了函数期望的参数类型，后面紧跟着需要随参数值更新的变量列表。因为PHP采用松散的变量定义和动态的类型判断，这样做就使得把不同类型的参数转化为期望的类型成为可能。例如，如果用户传递一个整数变量，可函数需要一个浮点数，那么zend_parse_parameters()就会自动地把整数转换为相应的浮点数。如果实际值无法转换成期望类型（比如整形到数组形），会触发一个警告。
+下表列出了可能指定的类型。我们从完整性考虑也列出了一些没有讨论到的类型。
+
+| 类型指定符 | 对应的C类型 | 描述                                     |
+| ---------- | ----------- | ---------------------------------------- |
+| l          | long        | 符号整数                                 |
+| d          | double      | 浮点数                                   |
+| s          | char *, int | 二进制字符串，长度                       |
+| b          | zend_bool   | 逻辑型（1或0）                           |
+| r          | zval *      | 资源（文件指针，数据库连接等）           |
+| a          | zval *      | 联合数组                                 |
+| o          | zval *      | 任何类型的对象                           |
+| O          | zval *      | 指定类型的对象。需要提供目标对象的类类型 |
+| z          | zval *      | 无任何操作的zval                         |
+
+为了容易地理解最后几个选项的含义，你需要知道zval是Zend引擎的值容器[1]。无论这个变量是布尔型，字符串型或者其他任何类型，其信息总会包含在一个zval联合体中。本章中我们不直接存取zval，而是通过一些附加的宏来操作。下面的是或多或少在C中的zval, 以便我们能更好地理解接下来的代码。
+
+```c
+typedef union _zval{
+     long lval;
+     double dval;
+     struct {
+          char *val;
+          int len;
+     }str;
+     HashTable *ht;
+     zend_object_value obj;
+}zval;
+```
+
+在我们的例子中，我们用基本类型调用zend_parse_parameters()，以本地C类型的方式取得函数参数的值，而不是用zval容器。
+为了让zend_parse_parameters()能够改变传递给它的参数的值，并返回这个改变值，需要传递一个引用。仔细查看一下self_concat()：
+
+```c
+if (zend_parse_parameters(argc TSRMLS_CC, "sl", &str, &str_len, &n) == FAILURE)
+return;
+```
+
+注意到自动生成的代码会检测函数的返回值FAILUER(成功即SUCCESS)来判断是否成功。如果没有成功则立即返回，并且由zend_parse_parameters()负责触发警告信息。因为函数打算接收一个字符串l和一个整数n，所以指定 ”sl” 作为其类型指示符。s需要两个参数，所以我们传递参考char * 和 int (str 和 str_len)给zend_parse_parameters()函数。无论什么时候，记得总是在代码中使用字符串长度str_len来确保函数工作在二进制安全的环境中。不要使用strlen()和strcpy()，除非你不介意函数在二进制字符串下不能工作。二进制字符串是包含有nulls的字符串。二进制格式包括图象文件，压缩文件，可执行文件和更多的其他文件。”l” 只需要一个参数，所以我们传递给它n的引用。尽管为了清晰起见，骨架脚本生成的C变量名与在函数原型定义文件中的参数名一样；这样做不是必须的，尽管在实践中鼓励这样做。
+回到转换规则中来。下面三个对self_concat()函数的调用使str, str_len和n得到同样的值：
+
+```php
+self_concat("321", 5);
+self_concat(321, "5");
+self_concat("321", "5");
+// str points to the string "321", str_len equals 3, and n equals 5.
+// str 指向字符串"321"，str_len等于3，n等于5。
+```
+
+在我们编写代码来实现连接字符串返回给PHP的函数前，还得谈谈两个重要的话题：内存管理、从PHP内部返回函数值所使用的API。
+
+##### 内存管理
+
+用于从堆中分配内存的PHP API几乎和标准C API一样。在编写扩展的时候，使用下面与C对应（因此不必再解释）的API函数：
+
+```c
+emalloc(size_t size);
+efree(void *ptr);
+ecalloc(size_t nmemb, size_t size);
+erealloc(void *ptr, size_t size);
+estrdup(const char *s);
+estrndup(const char *s, unsigned int length);
+```
+
+##### 从PHP函数中返回值
+
+扩展API包含丰富的用于从函数中返回值的宏。这些宏有两种主要风格：第一种是RETVAL_type()形式，它设置了返回值但C代码继续执行。这通常使用在把控制交给脚本引擎前还希望做的一些清理工作的时候使用，然后再使用C的返回声明 ”return” 返回到PHP；后一个宏更加普遍，其形式是RETURN_type()，他设置了返回类型，同时返回控制到PHP。下表解释了大多数存在的宏。
+
+| 设置返回值并且结束函数    | 设置返回值                | 宏返回类型和参数                                             |
+| ------------------------- | ------------------------- | ------------------------------------------------------------ |
+| RETURN_LONG(l)            | RETVAL_LONG(l)            | 整数                                                         |
+| RETURN_BOOL(b)            | RETVAL_BOOL(b)            | 布尔数(1或0)                                                 |
+| RETURN_NULL()             | RETVAL_NULL()             | NULL                                                         |
+| RETURN_DOUBLE(d)          | RETVAL_DOUBLE(d)          | 浮点数                                                       |
+| RETURN_STRING(s, dup)     | RETVAL_STRING(s, dup)     | 字符串。如果dup为1，引擎会调用estrdup()重复s，使用拷贝。如果dup为0，就使用s |
+| RETURN_STRINGL(s, l, dup) | RETVAL_STRINGL(s, l, dup) | 长度为l的字符串值。与上一个宏一样，但因为s的长度被指定，所以速度更快。 |
+| RETURN_TRUE               | RETVAL_TRUE               | 返回布尔值true。注意到这个宏没有括号。                       |
+| RETURN_FALSE              | RETVAL_FALSE              | 返回布尔值false。注意到这个宏没有括号。                      |
+| RETURN_RESOURCE(r)        | RETVAL_RESOURCE(r)        | 资源句柄。                                                   |
+
+##### 完成self_concat()
+
+现在你已经学会了如何分配内存和从PHP扩展函数里返回函数值，那么我们就能够完成self_concat()的编码：
+
+```c
+/* {{{ proto string self_concat(string str, int n)
+*/
+PHP_FUNCTION(self_concat)
+}
+char *str = NULL;
+int argc = ZEND_NUM_ARGS();
+int str_len;
+long n;
+char *result; /* Points to resulting string */
+char *ptr; /* Points at the next location we want to copy to */
+int result_length; /* Length of resulting string */
+if (zend_parse_parameters(argc TSRMLS_CC, "sl", &str, &str_len, &n) == FAILURE)
+return;
+/* Calculate length of result */
+result_length = (str_len * n);
+/* Allocate memory for result */
+result = (char *) emalloc(result_length + 1);
+/* Point at the beginning of the result */
+ptr = result;
+while (n--) {
+/* Copy str to the result */
+memcpy(ptr, str, str_len);
+/* Increment ptr to point at the next position we want to write to */
+ptr += str_len;
+}
+/* Null terminate the result. Always null-terminate your strings
+even if they are binary strings */
+*ptr = '\0';
+/* Return result to the scripting engine without duplicating it*/
+RETURN_STRINGL(result, result_length, 0);
+}
+/* }}} */
+```
+
+现在要做的就是重新编译一下PHP，这样就完成了第一个PHP函数。
+让我门检查函数是否真的工作。在最新编译过的PHP树下执行[2]下面的脚本：
+
+```php
+for ($i = 1; $i <= 3; $i++){
+     print self_concat("ThisIsUseless", $i);
+     print "\n";
+}
+  
+# 你应该得到下面的结果：
+# ThisIsUseless
+# ThisIsUselessThisIsUseless
+# ThisIsUselessThisIsUselessThisIsUseless
 ```
 
 
@@ -3017,39 +3555,112 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 
 
+## 问题
 
+#### 长连接和短连接的使用
 
+#### socket的使用
 
+#### Redis有哪些使用场景？Redis 是如何处理请求的？Redis 内存是如何分配的？
 
+#### 如何定位线上正在运行的程序出现的问题？
 
+#### 项目上线前的压力测试，单台服务器支持的并发数，pv数
 
+#### 服务器资源合理分配问题
 
+#### PHP扩展会写吗
 
+#### 说说 php-fpm 与 NGINX 工作原理是怎么样的？
 
+#### sset、empty 和 is_null 区别是怎么样的？如果传递一个 null，该三个函数分别返回什么？
 
+#### require_once 与 include_once，require 与 include 的区别？为什么一个是警告一个是致命错误？
 
+#### trait 协程 反射 依赖注入
 
+#### merge与merge+区别
 
+#### opcode
 
+#### php性能调优工具
 
+#### 微服务之间如何通信
 
+#### Php-fpm如何管理进程及进程配置方法
 
+#### 秒杀设计
 
+#### 中间件设计
 
+#### 堆和栈的区别并举例
 
+#### php实现LRU
 
+#### Autoload、Composer 原理 PSR-4 、原理
 
+#### Session 共享、存活时间
 
+#### 异常处理
 
+#### 如何数组化操作对象 $obj [key];
 
+#### 如何函数化对象 $obj (123);
 
+#### yield 是什么，说个使用场景 yield
 
+#### PSR 是什么，PSR-1, 2, 4, 7
 
+#### 如何获取客户端 IP 和服务端 IP 地址
 
+#### 如何返回一个 301 重定向
 
+#### 如何异步执行命令
 
+#### 如何实现链式操作 $obj->w ()->m ()->d ();
 
+#### 索引数组 [1, 2] 与关联数组 [‘k1’=>1, ‘k2’=>2] 有什么区别
 
+#### traits 与 interfaces 区别 及 traits 解决了什么痛点？
+
+#### JSON 和 JSONP 的区别
+
+#### RSA 是什么
+
+#### API 版本兼容怎么处理
+
+#### 限流（木桶、令牌桶）
+
+#### API 请求如何保证数据不被篡改？
+
+#### 常见 API 的 APP_ID APP_SECRET 主要作用是什么？阐述下流程
+
+#### 如果一个访问量达到100万，选择缓存，你会选择redis还memchache？
+
+我会选择memchache，因为它只有一种类型，key-value,而redis的类型比memchache多，导致它的并发没有memchache好。
+
+#### mb_strlen和str_len的区别？
+
+```php
+<?php
+$a = '中国';
+echo strlen($a)."\n";//6
+echo mb_strlen($a);//2
+```
+
+下面代码输出结果？
+
+```php
+$str = 'abc';
+$res = strpos($str,'a');
+    if ($res){
+        echo '找到了';
+    }
+     else {
+    echo '未找到';
+}
+//答案是：未找到未找到，因为strpos是查找首字母出现的位置，并且索引是从0开始的，并且PHPs是弱类型的，所以会输出:未找到
+```
 
 
 
