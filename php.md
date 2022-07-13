@@ -3935,6 +3935,10 @@ http://url/request?token=h40adc3949bafjhbbe56e027f20f583a&timetamp=1559396263&si
 
 #### 常见 API 的 APP_ID APP_SECRET 主要作用是什么？阐述下流程
 
+app_id : 软件的ID编号
+
+app secret : 签名的密钥
+
 #### 如果一个访问量达到100万，选择缓存，你会选择redis还memchache？
 
 我会选择memchache，因为它只有一种类型，key-value,而redis的类型比memchache多，导致它的并发没有memchache好。
