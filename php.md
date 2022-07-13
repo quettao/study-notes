@@ -314,6 +314,86 @@ static zend_always_inline void zend_mm_free_heap(zend_mm_heap *heap, void *ptr){
 
 8）如何方便根据地址计算当前内存块属于chunk中的哪一个页？PHP分配的chunk都是2M字节对齐的，任意地址的低21位即是相对chunk首地址，除以页大小则可获得页号；
 
+### PHP opcode
+
+Opcode是一种PHP脚本编译后的中间语言，就像Java的ByteCode,或者.NET的MSL，举个例子，比如你写下了如下的PHP代码
+
+```php
+echo "Hello World";
+$a = 1 + 1;
+echo $a;
+```
+
+PHP执行这段代码会经过如下4个步骤(确切的来说，应该是PHP的语言引擎Zend)
+
+> 1.Scanning(Lexing) ,将PHP代码转换为语言片段(Tokens)
+>  2.Parsing, 将Tokens转换成简单而有意义的表达式
+>  3.Compilation, 将表达式编译成Opocdes
+>  4.Execution, 顺次执行Opcodes，每次一条，从而实现PHP脚本的功能。
+
+现在有的Cache比如APC,可以使得PHP缓存住Opcodes，这样，每次有请求来临的时候，就不需要重复执行前面3步，从而能大幅的提高PHP的执行速度。
+
+#### php 开启 opcode 测试
+
+测试代码
+
+```php
+for($i=0;$i<100;$i++){
+    echo "Hello Opcache";
+}
+```
+
+执行命令
+
+```
+ ab -n 1000 -c 100 http://192.168.1.110:8080/t1.php
+```
+
+开启时测试结果结果
+
+```shell
+Concurrency Level:      100
+Time taken for tests:   0.976 seconds
+Complete requests:      1000
+Failed requests:        0
+Write errors:           0
+Total transferred:      1430000 bytes
+HTML transferred:       1300000 bytes
+Requests per second:    1024.27 [#/sec] (mean)
+Time per request:       97.630 [ms] (mean)
+Time per request:       0.976 [ms] (mean, across all concurrent requests)
+Transfer rate:          1430.38 [Kbytes/sec] received
+```
+
+关闭后测试结果
+
+```shell
+Concurrency Level:      100
+Time taken for tests:   1.695 seconds
+Complete requests:      1000
+Failed requests:        0
+Write errors:           0
+Total transferred:      1430000 bytes
+HTML transferred:       1300000 bytes
+Requests per second:    589.89 [#/sec] (mean)
+Time per request:       169.522 [ms] (mean)
+Time per request:       1.695 [ms] (mean, across all concurrent requests)
+Transfer rate:          823.78 [Kbytes/sec] received
+```
+
+结论
+
+```
+在开启 `opcache` 后 每秒钟请求从 `589.89` 增长到了 `1024.27`
+合理利用 `opcache` 会给程序带来不错的优化效果
+```
+
+
+
+#### opcode 注意事项
+
+opcode 生成规则是，通过时间戳进行生成新 opcode，**在生产环境中如果发布版本回退，老的opcode 生成时间会大于回退版本文件的当前时间戳的。** 也就是说不会再更新啦。
+
 ### php 内置缓存
 
 #### 1. ob缓存
@@ -2636,9 +2716,53 @@ FPM支持多个工作池(worker pool), FPM的工作池可以简单的理解为�
 
 （8）传输速度方面：JSON 的速度远远快于 XML。
 
-#### 48. **Trait 优先级**
+#### 48. **Trait 优先级**,特性及作用
+
+###### Trait类的优先级控制
 
 在 trait 继承中，优先顺序依次是：来自当前类的成员覆盖了 trait 的方法，而 trait 则覆盖了被继承的方法
+
+###### **多个Trait类的冲突控制**
+
+在PHP中，如果当前类use了两个Trait类，同时两个trait类都存在一个同名的方法，此时如果没有明确解决冲突将会产生一个致命错误。
+
+对于这种情况，PHP官方给出了两个解决方案：
+
+1、insteadof关键字：通过该关键字指定方法名冲突时该使用哪个Trait类的方法，即：
+ 如果C类use了A、B两个Trait类，且A、B两个类都存在a、b方法，则在C类use A、B类时使用insteadof声明冲突的解决方法即可：
+
+```php
+use A, B {
+  B::a insteadof A; //a方法冲突时使用B类的a方法而不使用A类的a方法
+  A::b insteadof B; //b方法冲突时使用A类的b方法而不使用B类的b方法
+}
+```
+
+2、as关键字：通过as关键字将同名方法指定为一个别名，且仅作用于当前类中。示例如下：
+
+```php
+use A, B {
+  B::a as c; //声明B类的a方法为c，作用于该类
+  A::b as d; //声明A类的b方法为d，作用于该类
+}
+```
+
+###### 与继承、直接实例化的区别
+
+对于当前一个类需要用到另一个或多个类的方法的情况，我们一般会想到的方式有继承、直接实例化另外一个或多个类等等的方法，下面来对比一下这些方法和Trait类的区别：
+ 1、继承方式：对于继承，可以完美地复用另一个类的一些方法，但是对于需要复用多个类的方法时，PHP是不支持多继承的，而且只能访问public和protected方法；
+ 2、与直接实例化的区别：我们也可以在当前类中直接实例化要用到的A类与B类，但是这种方法在控制访问范围反面，只允许访问A、B类中public的方法；
+ 3、使用Trait类则完全将A、B两个类的方法导入到当前类中，可以视为当前类的一部分，唯一区别是可能存在于当前类同名的方法，此时由优先级顺序来控制。
+
+###### 总结
+
+1.Trait 会覆盖调用类继承的父类方法，但也会被当前类所覆盖
+ 2.Trait 无法如 Class 一样使用 new 实例化
+ 3.单个 Trait 可由多个 Trait 组成
+ 4.在单个 Class 中，可以使用多个 Trait
+ 5.Trait 支持修饰词（modifiers），例如 final、static、abstract
+ 6.我们能使用 insteadof 以及 as 操作符解决 Trait 之间的冲突
+ 7.Trait中不区分修饰符，即可以操作Trait中的public protected private级别的属性和方法，这个extends继承有所不同
 
 #### 49. **self 和 static 的区别**
 
@@ -3577,7 +3701,9 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### require_once 与 include_once，require 与 include 的区别？为什么一个是警告一个是致命错误？
 
-#### trait 协程 反射 依赖注入
+#### 协程 反射 依赖注入
+
+#### PHP生命周期
 
 #### merge与merge+区别
 
@@ -3592,8 +3718,6 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 #### 秒杀设计
 
 #### 中间件设计
-
-#### 堆和栈的区别并举例
 
 #### php实现LRU
 
@@ -3631,7 +3755,183 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### 限流（木桶、令牌桶）
 
-#### API 请求如何保证数据不被篡改？
+为了防止客户端对于接口的滥用，保护服务器的资源， 通常来说我们会对于服务器上的各种接口进行调用次数的限制。比如对于某个 用户，他在一个时间段（interval）内，比如 1 分钟，调用服务器接口的次数不能够 大于一个上限（limit），比如说 100 次。如果用户调用接口的次数超过上限的话，就直接拒绝用户的请求，返回错误信息。
+
+服务接口的流量控制策略：分流、降级、限流等。
+
+令牌桶算法(Token Bucket)和 Leaky Bucket 效果一样但方向相反的算法,更加容易理解.随着时间流逝,系统会按恒定1/QPS时间间隔(如果QPS=100,则间隔是10ms)往桶里加入Token(想象和漏洞漏水相反,有个水龙头在不断的加水),如果桶已经满了就不再加了.新请求来临时,会各自拿走一个Token,如果没有Token可拿了就阻塞或者拒绝服务.
+
+令牌桶的另外一个好处是可以方便的改变速度. 一旦需要提高速率,则按需提高放入桶中的令牌的速率. 一般会定时(比如100毫秒)往桶中增加一定数量的令牌, 有些变种算法则实时的计算应该增加的令牌的数量.
+
+**demo.php**
+
+```php
+class TrafficSahper{
+ private $_config; // redis设定
+ private $_redis;  // redis对象
+ private $_queue;  // 令牌桶
+ private $_max;    // 最大令牌
+ public function __construct($config, $queue, $max){
+    $this->_config = $config;
+    $this->_queue = $queue;
+    $this->_max = $max;
+    $this->_redis = $this->connect();
+ }
+  
+ // 加入令牌
+ public function add($num=0){
+    $curnum = intval($this->_redis->llen($this->_queue));
+    $maxnum = intval($this->_max);
+    $num = $maxnum>=$curnum+$num ? $num : $maxnum-$curnum;
+    if($num>0){
+            $token = array_fill(0, $num, 1);
+            $this->_redis->lPush($this->_queue, ...$token);
+            return $num;
+        }
+        return 0;
+ }
+  
+ // 获取令牌
+ public function get(){
+   return $this->_redis->rpop($this->_queue) ? true : false;
+ }
+  
+  public function connect(){
+        try{
+            $redis = new Redis();
+            $redis->connect($this->_config['host'], $this->_config['port']);
+            //echo $redis->ping();
+        }catch(RedisException $e){
+            var_dump($e);
+        }
+        return $redis;
+  }
+	
+}
+// new TrafficSahper();
+```
+
+使用
+
+```php
+require 'demo.php';
+// // redis连接设定
+$config = array(
+    'host' => 'localhost',
+    'port' => 6379,
+);
+
+// // 令牌桶容器
+$queue = 'mycontainer';
+
+// // 最大令牌数
+ $max = 5;
+
+// // 创建TrafficShaper对象
+$oTrafficShaper = new TrafficSahper($config, $queue, $max);
+
+//  // 重设令牌桶，填满令牌
+ $oTrafficShaper->reset();
+
+// // // 循环获取令牌，令牌桶内只有5个令牌，因此最后3次获取失败
+ for($i=0; $i<8; $i++){
+        var_dump($oTrafficShaper->get());
+ }
+
+//  // 加入10个令牌，最大令牌为5，因此只能加入5个
+$add_num = $oTrafficShaper->add(10);
+var_dump($add_num);
+
+// // 循环获取令牌，令牌桶内只有5个令牌，因此最后1次获取失败
+for($i=0; $i<15; $i++){
+  var_dump($oTrafficShaper->get());
+ }
+
+```
+
+
+
+#### 如何保证API接口数据安全
+
+restful风格，前端，还有app都采用API接口的形式来与后端服务进行数据通信，传输的数据很容易被偷窥，抓包，那么我们在设计系统的时候如何设计出一套安全的API方案呢？
+
+解决方案：
+
+1. Token授权认证，防止未授权的用户获取数据。
+2. 时间戳超时机制。
+3. URL签名，防止请求参数被篡改。
+4. 防重放，防止接口被第二次请求，防采集。
+5. 采用HTTPS通信协议，防止数据明文传输。
+
+##### 1. Token授权认证
+
+Token的设计方案是用户在客户端使用用户名和密码登录后，服务器会给客户端返回一个Token，并将Token以键值对的形式存放在缓存（一般是Redis）中，后续客户端对需要授权模块的所有操作都要带上这个Token，服务器端接收到请求后进行Token验证，如果Token存在，说明是授权的请求。
+
+Token生成的设计要求：
+
+1、应用内一定要唯一，否则会出现授权混乱，A用户看到了B用户的数据；
+
+2、每次生成的Token一定要不一样，防止被记录，授权永久有效；
+
+3、一般Token对应的是Redis的key，value存放的是这个用户相关缓存信息，比如：用户的id；
+
+4、要设置Token的过期时间，过期后需要客户端重新登录，获取新的Token，如果Token有效期设置较短，会反复需要用户登录，体验比较差，我们一般采用Token过期后，客户端静默登录的方式，当客户端收到Token过期后，客户端用本地保存的用户名和密码在后台静默登录来获取新的Token，还有一种是单独出一个刷新Token的接口，但是一定要注意刷新机制和安全问题；
+
+根据上面的设计方案要求，我们很容易得到Token=md5(用户ID+登录的时间戳+服务器端秘钥)这种方式来获得Token，因为用户ID是应用内唯一的，登录的时间戳保证每次登录的时候都不一样，服务器端秘钥是配置在服务器端参与加密的字符串（即：盐），目的是提高Token加密的破解难度，注意一定不要泄漏；
+
+##### 2. 时间戳超时机制
+
+客户端每次请求接口都带上当前时间的时间戳timestamp，服务端接收到timestamp后跟当前时间进行比对，如果时间差大于一定时间（比如：1分钟），则认为该请求失效。时间戳超时机制是防御DOS攻击的有效手段。
+
+例：http://url/getInfo?id=1&timetamp=1559396263
+
+##### 3. URL签名
+
+写过支付宝或微信支付对接的同学肯定对URL签名不陌生，我们只需要将原本发送给server端的明文参数做一下签名，然后在server端用相同的算法再做一次签名，对比两次签名就可以确保对应明文的参数有没有被中间人篡改过。
+
+首先我们需要分配给客户端一个私钥用于URL签名加密，一般的签名算法如下：
+
+1、首先对通信的参数按key进行字母排序放入数组中（一般请求的接口地址也要参与排序和签名，那么需要额外添加url=[http://url/getInfo](https://links.jianshu.com/go?to=http%3A%2F%2Furl%2FgetInfo)这个参数）；
+
+2、对排序完的数组键值对用&进行连接，形成用于加密的参数字符串；
+
+3、在加密的参数字符串前面或者后面加上私钥，然后用md5进行加密，得到sign，然后随着请求接口一起传给服务器。
+
+例如：
+
+```
+http://url/getInfo?id=1&timetamp=1559396263&sign=e10adc3949ba59abbe56e057f20f883e
+```
+
+服务器端接收到请求后，用同样的算法获得服务器的sign，对比客户端的sign是否一致，如果一致请求有效；
+
+##### 4. 防重放
+
+客户端第一次访问时，将签名sign存放到服务器的Redis中，超时时间设定为跟时间戳的超时时间一致，二者时间一致可以保证无论在timestamp限定时间内还是外 URL都只能访问一次，如果被非法者截获，使用同一个URL再次访问，如果发现缓存服务器中已经存在了本次签名，则拒绝服务。如果在缓存中的签名失效的情况下，有人使用同一个URL再次访问，则会被时间戳超时机制拦截，这就是为什么要求sign的超时时间要设定为跟时间戳的超时时间一致。拒绝重复调用机制确保URL被别人截获了也无法使用（如抓取数据）。
+
+以上方案流程如下：
+
+1、客户端通过用户名密码登录服务器并获取Token；
+
+2、客户端生成时间戳timestamp，并将timestamp作为其中一个参数；
+
+3、客户端将所有的参数，包括Token和timestamp按照自己的签名算法进行排序加密得到签名sign
+
+4、将token、timestamp和sign作为请求时必须携带的参数加在每个请求的URL后边
+
+例：
+
+```
+http://url/request?token=h40adc3949bafjhbbe56e027f20f583a&timetamp=1559396263&sign=e10adc3949ba59abbe56e057f20f883e
+```
+
+服务端对token、timestamp和sign进行验证，只有在token有效、timestamp未超时、缓存服务器中不存在sign三种情况同时满足，本次请求才有效；
+
+##### 5. 采用HTTPS通信协议
+
+众所周知HTTP协议是以明文方式发送内容，不提供任何方式的数据加密，如果攻击者截取了客户端和服务器之间的传输报文，就可以直接读懂其中的信息，因此HTTP协议不适合传输一些敏感信息，比如信用卡号、密码等。
+
+针对安全性要求一般的app，可采用通过校验域名，证书有效性、证书关键信息及证书链的方式；
 
 #### 常见 API 的 APP_ID APP_SECRET 主要作用是什么？阐述下流程
 
