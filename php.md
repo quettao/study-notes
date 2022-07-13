@@ -3891,7 +3891,7 @@ Token生成的设计要求：
 
 首先我们需要分配给客户端一个私钥用于URL签名加密，一般的签名算法如下：
 
-1、首先对通信的参数按key进行字母排序放入数组中（一般请求的接口地址也要参与排序和签名，那么需要额外添加url=[http://url/getInfo](https://links.jianshu.com/go?to=http%3A%2F%2Furl%2FgetInfo)这个参数）；
+1、首先对通信的参数按key进行字母排序放入数组中（一般请求的接口地址也要参与排序和签名，那么需要额外添加url=[http://url/getInfo](https://links.jianshu.com/go?to=http%3A%2F%2Furl%2FgetInfo)这个参数）
 
 2、对排序完的数组键值对用&进行连接，形成用于加密的参数字符串；
 
