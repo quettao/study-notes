@@ -3749,6 +3749,10 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### JSON 和 JSONP 的区别
 
+##### 1. 什么是json ?
+
+https://zhuanlan.zhihu.com/p/24462091
+
 #### RSA 是什么
 
 #### API 版本兼容怎么处理
