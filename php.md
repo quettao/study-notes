@@ -3705,6 +3705,48 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### PHP生命周期
 
+##### 1. 模块初始化阶段
+
+这个阶段主要进行PHP[框架](https://so.csdn.net/so/search?q=框架&spm=1001.2101.3001.7020)、zend引擎的初始化操作。这个阶段一般只在SAPI启动时执行一次，对于Fpm而言，就是在Fpm的master进程启动时执行。
+
+激活SAPI：sapi_active(),初始化请求信息SG（request info）、设置读取POST请求的 handler等，在module startup阶段处理完后将调用sapi_deactivate()。
+启动PHP输出：php_output_startup()
+初始化垃圾回收器：gc_globals_ctor()，分配zend_gc_globals内存
+启动Zend引擎：zend_startup()
+注册PHP定义的常量：PHP_VERSION、PHP_ZTS、PHP_SAPI，等等
+解析php.ini：解析完成后所有的php.ini配置保存在configuration_hash哈希表中
+映射PHP、Zend核心的php.ini配置：根据解析出php.ini，获取对应的配置值，将最终的配置插入EG（ini_directives）哈希表。
+注册用于获取$_GET、$_POST、$_COOKIE、$_SERVER、$_ENV、$_REQUEST、$_FILES变量的handler
+注册静态编译的扩展：php_regesiter_internal_extensions_func()。
+注册动态加载的扩展：php_ini_register_extensions()，将php.ini中配置的扩展加载到php中
+回调各扩展定义的module startup钩子函数，即通过PHP_MINT_FUNCTION()定义的函数
+注册php.ini中禁用的函数、类：disable_functions、disable_classes。
+
+##### 2. 请求初始化阶段
+
+该阶段是在请求处理前每个请求都会经历的一个阶段，对于Fpm而言，是在worker进程accept一个请求且读取、解析完请求数据后的一个阶段。该阶段的处理函数为php_request_startup
+
+激活输出：php_output_activate()
+激活Zend引擎：zend_activate()，主要操作如下：
+1.重置垃圾回收器：gc_reset()
+2.初始化编译器：init_compiler
+3.初始化执行器：init_executor
+4.初始化词法扫描器：startup_scanner()
+激活SAPI：sapi_activate()
+回调个扩展定义的request startup钩子函数：zend_activate_modules()
+
+##### 3.执行脚本阶段
+
+该阶段包括PHP代码的编译、执行两个核心阶段，这也是Zend引擎最重要的功能。在编译阶段，PHP脚本将经历从PHP源代码到抽象语法树再到opline指令的转化过程，最终生成的opline指令就是Zend引擎可识别的执行指令，这些指令被执行器执行，这就是PHP代码解释执行的过程。
+
+##### 4.请求关闭阶段
+
+在PHP脚本解释执行完成后将进入请求关闭阶段，这个阶段将flush输出内容、发送HTTP应答header头、清理全局变量、关闭编译器、关闭执行器等。另外，在该阶段将回调各个扩展的request shutdown钩子函数。
+
+##### 5.模块关闭阶段
+
+该阶段在SAPI关闭时执行，与模块初始化阶段对应，这个阶段主要进行资源的清理、PHP各个模块的关闭操作，同时，将回调各个扩展的module shutdown 钩子函数。具体的处理函数为php_module_shutdown()。
+
 #### merge与merge+区别
 
 #### opcode
@@ -3739,23 +3781,242 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### 如何返回一个 301 重定向
 
+php返回一个301重定向的方法：
+
+1、在php中正常的临时跳转通常使用：
+
+```php
+header("Location:your_dest_url"); // 这种返回的状态码是302
+```
+
+2、如果要实现php 301跳转的话，需要在之前设置下状态码：
+
+```php
+header( "HTTP/1.1 301 Moved Permanently" ); // 设置状态码
+header("Location:your_dest_url");
+```
+
+注意：30*返回状态码的区别
+
+301，302 都是HTTP状态的编码，都代表着某个URL发生了转移，不同之处在于：
+
+301 redirect: 301 代表永久性转移(Permanently Moved)，
+
+302 redirect: 302 代表暂时性转移(Temporarily Moved )，
+
+使用以上方法即可实现php 301重定向，做url的永久重定向。
+
+```php
+$the_host = $_SERVER['HTTP_HOST']; // 取得当前域名
+
+$request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''; // 判断地址后面是否有参数
+
+header('HTTP/1.1 301 Moved Permanently'); // 发出301头部
+
+header('Location: http://www.jbxue.com'.$request_uri); // 跳转到目标
+```
+
+
+
 #### 如何异步执行命令
 
 #### 如何实现链式操作 $obj->w ()->m ()->d ();
 
-#### 索引数组 [1, 2] 与关联数组 [‘k1’=>1, ‘k2’=>2] 有什么区别
-
 #### traits 与 interfaces 区别 及 traits 解决了什么痛点？
+
+interface 是定义接口，将逻辑交给其他程序员实现。trait是自己实现逻辑，供其他人使用。
+
+traits 解决了PHP不能多继承，代码复用
 
 #### JSON 和 JSONP 的区别
 
 ##### 1. 什么是json ?
 
-https://zhuanlan.zhihu.com/p/24462091
+JSON是一种基于文本的数据交换方式，或者叫做数据描述格式.
+
+JSON的优点：
+
+1、基于纯文本，跨平台传递极其简单；
+
+2、Javascript原生支持，后台语言几乎全部支持；
+
+3、轻量级数据格式，占用字符数量极少，特别适合互联网传递；
+
+4、可读性较强，虽然比不上XML那么一目了然，但在合理的依次缩进之后还是很容易识别的；
+
+5、容易编写和解析，当然前提是你要知道数据结构；
+
+
+
+##### 2. 什么是JSONP？
+
+1、一个众所周知的问题，Ajax直接请求普通文件存在跨域无权限访问的问题，甭管你是静态页面、动态网页、web服务、WCF，只要是跨域请求，一律不准；
+
+2、不过我们又发现，Web页面上调用js文件时则不受是否跨域的影响（不仅如此，我们还发现凡是拥有"src"这个属性的标签都拥有跨域的能力，比如<script>、<img>、<iframe>）；
+
+3、于是可以判断，当前阶段如果想通过纯web端（ActiveX控件、服务端代理、属于未来的HTML5之Websocket等方式不算）跨域访问数据就只有一种可能，那就是在远程服务器上设法把数据装进js格式的文件里，供客户端调用和进一步处理；
+
+4、恰巧我们已经知道有一种叫做JSON的纯字符数据格式可以简洁的描述复杂数据，更妙的是JSON还被js原生支持，所以在客户端几乎可以随心所欲的处理这种格式的数据；
+
+5、这样子解决方案就呼之欲出了，web客户端通过与调用脚本一模一样的方式，来调用跨域服务器上动态生成的js格式文件（一般以JSON为后缀），显而易见，服务器之所以要动态生成JSON文件，目的就在于把客户端需要的数据装入进去。
+
+6、客户端在对JSON文件调用成功之后，也就获得了自己所需的数据，剩下的就是按照自己需求进行处理和展现了，这种获取远程数据的方式看起来非常像AJAX，但其实并不一样。
+
+7、为了便于客户端使用数据，逐渐形成了一种非正式传输协议，人们把它称作JSONP，该协议的一个要点就是允许用户传递一个callback参数给服务端，然后服务端返回数据时会将这个callback参数作为函数名来包裹住JSON数据，这样客户端就可以随意定制自己的函数来自动处理返回数据了。
+
+##### JSONP的客户端具体实现
+
+**1、我们知道，哪怕跨域js文件中的代码（当然指符合web脚本安全策略的），web页面也是可以无条件执行的。**
+
+远程服务器[http://remoteserver.com](https://link.zhihu.com/?target=http%3A//remoteserver.com)根目录下有个remote.js文件代码如下：
+
+```js
+alert('我是远程文件');
+```
+
+本地服务器[http://localserver.com](https://link.zhihu.com/?target=http%3A//localserver.com)下有个jsonp.html页面代码如下：
+
+```html
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <script type="text/javascript" src="http://remoteserver.com/remote.js"></script>
+</head>
+<body>
+
+</body>
+</html>
+```
+
+毫无疑问，页面将会弹出一个提示窗体，显示跨域调用成功。
+
+
+
+**2、现在我们在jsonp.html页面定义一个函数，然后在远程remote.js中传入数据进行调用。**
+
+jsonp.html页面代码如下：
+
+```html
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <script type="text/javascript">
+    var localHandler = function(data){
+        alert('我是本地函数，可以被跨域的remote.js文件调用，远程js带来的数据是：' + data.result);
+    };
+    </script>
+    <script type="text/javascript" src="http://remoteserver.com/remote.js"></script>
+</head>
+<body>
+
+</body>
+</html>
+```
+
+remote.js文件代码如下：
+
+```js
+localHandler({"result":"我是远程js带来的数据"});
+```
+
+运行之后查看结果，页面成功弹出提示窗口，显示本地函数被跨域的远程js调用成功，并且还接收到了远程js带来的数据。很欣喜，跨域远程获取数据的目的基本实现了，但是又一个问题出现了，我怎么让远程js知道它应该调用的本地函数叫什么名字呢？毕竟是jsonp的服务者都要面对很多服务对象，而这些服务对象各自的本地函数都不相同啊？我们接着往下看。
+
+3、聪明的开发者很容易想到，只要服务端提供的js脚本是动态生成的就行了呗，这样调用者可以传一个参数过去告诉服务端“我想要一段调用XXX函数的js代码，请你返回给我”，于是服务器就可以按照客户端的需求来生成js脚本并响应了。
+
+看jsonp.html页面的代码：
+
+```html
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <script type="text/javascript">
+    // 得到航班信息查询结果后的回调函数
+    var flightHandler = function(data){
+        alert('你查询的航班结果是：票价 ' + data.price + ' 元，' + '余票 ' + data.tickets + ' 张。');
+    };
+    // 提供jsonp服务的url地址（不管是什么类型的地址，最终生成的返回值都是一段javascript代码）
+    var url = "http://flightQuery.com/jsonp/flightResult.aspx?code=CA1998&callback=flightHandler";
+    // 创建script标签，设置其属性
+    var script = document.createElement('script');
+    script.setAttribute('src', url);
+    // 把script标签加入head，此时调用开始
+    document.getElementsByTagName('head')[0].appendChild(script); 
+    </script>
+</head>
+<body>
+
+</body>
+</html>
+```
+
+这次的代码变化比较大，不再直接把远程js文件写死，而是编码实现动态查询，而这也正是jsonp客户端实现的核心部分，本例中的重点也就在于如何完成jsonp调用的全过程。
+
+我们看到调用的url中传递了一个code参数，告诉服务器我要查的是CA1998次航班的信息，而callback参数则告诉服务器，我的本地回调函数叫做flightHandler，所以请把查询结果传入这个函数中进行调用。
+
+OK，服务器很聪明，这个叫做flightResult.aspx的页面生成了一段这样的代码提供给jsonp.html（服务端的实现这里就不演示了，与你选用的语言无关，说到底就是拼接字符串）：
+
+```js
+flightHandler({
+    "code": "CA1998",
+    "price": 1780,
+    "tickets": 5
+});
+```
+
+我们看到，传递给flightHandler函数的是一个json，它描述了航班的基本信息。运行一下页面，成功弹出提示窗口，jsonp的执行全过程顺利完成！
+
+4、到这里为止的话，相信你已经能够理解jsonp的客户端实现原理了吧？剩下的就是如何把代码封装一下，以便于与用户界面交互，从而实现多次和重复调用。
+
+什么？你用的是jQuery，想知道jQuery如何实现jsonp调用？好吧，那我就好人做到底，再给你一段jQuery使用jsonp的代码（我们依然沿用上面那个航班信息查询的例子，假定返回jsonp结果不变）：
+
+```html
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+ <html xmlns="http://www.w3.org/1999/xhtml" >
+ <head>
+     <title>Untitled Page</title>
+      <script type="text/javascript" src=jquery.min.js"></script>
+      <script type="text/javascript">
+     jQuery(document).ready(function(){ 
+        $.ajax({
+             type: "get",
+             async: false,
+             url: "http://flightQuery.com/jsonp/flightResult.aspx?code=CA1998",
+             dataType: "jsonp",
+             jsonp: "callback",//传递给请求处理程序或页面的，用以获得jsonp回调函数名的参数名(一般默认为:callback)
+             jsonpCallback:"flightHandler",//自定义的jsonp回调函数名称，默认为jQuery自动生成的随机函数名，也可以写"?"，jQuery会自动为你处理数据
+             success: function(json){
+                 alert('您查询到航班信息：票价： ' + json.price + ' 元，余票： ' + json.tickets + ' 张。');
+             },
+             error: function(){
+                 alert('fail');
+             }
+         });
+     });
+     </script>
+     </head>
+  <body>
+  </body>
+ </html>
+```
+
+，jquery在处理jsonp类型的ajax时（还是忍不住吐槽，虽然jquery也把jsonp归入了ajax，但其实它们真的不是一回事儿），自动帮你生成回调函数并把数据取出来供success属性方法来调用.
+
+**注意：**
+
+1、ajax和jsonp这两种技术在调用方式上“看起来”很像，目的也一样，都是请求一个url，然后把服务器返回的数据进行处理，因此jquery和ext等框架都把jsonp作为ajax的一种形式进行了封装；
+
+2、但ajax和jsonp其实本质上是不同的东西。ajax的核心是通过XmlHttpRequest获取非本页内容，而jsonp的核心则是动态添加<script>标签来调用服务器提供的js脚本。
+
+3、所以说，其实ajax与jsonp的区别不在于是否跨域，ajax通过服务端代理一样可以实现跨域，jsonp本身也不排斥同域的数据的获取。
+
+4、还有就是，jsonp是一种方式或者说非强制性协议，如同ajax一样，它也不一定非要用json格式来传递数据，如果你愿意，字符串都行，只不过这样不利于用jsonp提供公开服务。
+
+总而言之，jsonp不是ajax的一个特例，哪怕jquery等巨头把jsonp封装进了ajax，也不能改变着一点！
 
 #### RSA 是什么
-
-#### API 版本兼容怎么处理
 
 #### 限流（木桶、令牌桶）
 
