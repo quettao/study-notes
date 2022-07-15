@@ -1,4 +1,4 @@
-### php
+php
 
 #### **PHP的基本变量类型**
 
@@ -3693,13 +3693,29 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 #### 服务器资源合理分配问题
 
-#### PHP扩展会写吗
-
 #### 说说 php-fpm 与 NGINX 工作原理是怎么样的？
 
-#### sset、empty 和 is_null 区别是怎么样的？如果传递一个 null，该三个函数分别返回什么？
+#### isset、empty 和 is_null 区别是怎么样的？如果传递一个 null，该三个函数分别返回什么？
 
 #### require_once 与 include_once，require 与 include 的区别？为什么一个是警告一个是致命错误？
+
+include() 与require() 的功能相同
+
+唯一不同：require()不管是否被执行，只要存在，php在执行前都会预引入，include()则是执行到该语句时才进行引入
+
+include_once() 与 require_once() 都是检测文件是否被引入，被引入则不会引入
+
+唯一不同： require_once()为无条件包含，顾名思义也就是引入后如遇到错误则停止，include_once()则忽略然后继续执行
+
+该函数原理：引入文件->对当前脚本语句进行比较是否包含过->决定是否引入，效率可想而知，你想你要是整个项目上百个类库，一次执行中比较数十次是怎样的一个恐怖的后果
+
+在这里写一下个人的多类库中防止重复引入文件的解决方式：
+
+1.在调用脚本使用require();
+
+2.类库中防止重复使用 class_exists('类名') or include('类库绝对路径');
+
+解释：调用脚本的文件使用一次require()，因为调用脚本为程序通用入口，此处引入公共类库很少会造成公共类库没有被使用，在类库中使用以上语句，能防止当前脚本重复引入公共类库，并且只要通过判断条件才会执行引入，不会重复预引入，提高程序执行效率
 
 #### 协程 反射 依赖注入
 
@@ -3747,9 +3763,73 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 
 该阶段在SAPI关闭时执行，与模块初始化阶段对应，这个阶段主要进行资源的清理、PHP各个模块的关闭操作，同时，将回调各个扩展的module shutdown 钩子函数。具体的处理函数为php_module_shutdown()。
 
-#### merge与merge+区别
+#### array_merge与array+array与array_merge_recursive区别
 
-#### opcode
+```php
+// array + array
+$a=array("1"=>1,'c'=>2);
+$b=array("a"=>3,'c'=>5);
+$c=$a+$b;
+var_dump($c);
+/*
+array(3) {
+  [1]=>
+  int(1)
+  ["c"]=>
+  int(2)
+  ["a"]=>
+  int(3)
+}
+*/
+# + : key 会完整的保留下来，但字符串数字key变成了数字key了，且合并有相同的key，保留第一个key的值
+```
+
+
+
+```php
+// array_merge
+$a=array("1"=>1,'c'=>2);
+$b=array("a"=>3,'c'=>5);
+var_dump(array_merge($a,$b));
+/*
+array(3) {
+  [0]=>
+  int(1)
+  ["c"]=>
+  int(5)
+  ["a"]=>
+  int(3)
+}
+*/
+# array_merge 数字key会被归为0，含有相同key的情况下，保留第二个的key的值
+```
+
+
+
+```php
+// array_merge_recrisive
+$a=array("1"=>1,'c'=>2);
+$b=array("a"=>3,'c'=>5);
+var_dump(array_merge_recursive($a,$b));
+/*
+array(3) {
+  [0]=>
+  int(1)
+  ["c"]=>
+  array(2) {
+    [0]=>
+    int(2)
+    [1]=>
+    int(5)
+  }
+  ["a"]=>
+  int(3)
+}
+*/
+# array_merge_recursive 数字key会被归为0，含有相同key的情况下，会把合成一个数组。
+```
+
+
 
 #### php性能调优工具
 
@@ -3774,6 +3854,194 @@ PHP 的数组在底层实现了一个自动扩容机制，当插入一个元素�
 #### 如何函数化对象 $obj (123);
 
 #### yield 是什么，说个使用场景 yield
+
+```dart
+生成器提供了一种更容易的方法来实现简单的对象迭代，相比较定义类实现 Iterator 接口的方式，性能开销和复杂性大大降低。
+
+生成器允许你在 foreach 代码块中写代码来迭代一组数据而不需要在内存中创建一个数组, 那会使你的内存达到上限，或者会占据可观的处理时间。相反，你可以写一个生成器函数，就像一个普通的自定义函数一样, 和普通函数只返回一次不同的是, 生成器可以根据需要 yield 多次，以便生成需要迭代的值。
+
+一个简单的例子就是使用生成器来重新实现 range() 函数。 标准的 range() 函数需要在内存中生成一个数组包含每一个在它范围内的值，然后返回该数组, 结果就是会产生多个很大的数组。 比如，调用 range(0, 1000000) 将导致内存占用超过 100 MB。
+
+做为一种替代方法, 我们可以实现一个 xrange() 生成器, 只需要足够的内存来创建 Iterator 对象并在内部跟踪生成器的当前状态，这样只需要不到1K字节的内存。
+```
+
+##### 1. 随机数组
+
+```php
+function xrange($start, $limit, $step = 1) {
+    if ($start < $limit) {
+        if ($step <= 0) {
+            throw new LogicException('Step must be +ve');
+        }
+
+        for ($i = $start; $i <= $limit; $i += $step) {
+            yield $i;
+        }
+    } else {
+        if ($step >= 0) {
+            throw new LogicException('Step must be -ve');
+        }
+
+        for ($i = $start; $i >= $limit; $i += $step) {
+            yield $i;
+        }
+    }
+}
+
+/* 
+ * 注意下面range()和xrange()输出的结果是一样的。
+ */
+
+echo 'Single digit odd numbers from range():  ';
+foreach (range(1, 9, 2) as $number) {
+    echo "$number ";
+}
+echo "\n";
+
+echo 'Single digit odd numbers from xrange(): ';
+foreach (xrange(1, 9, 2) as $number) {
+    echo "$number ";
+}
+```
+
+```php
+# 生成器函数的核心是yield关键字。它最简单的调用形式看起来像一个return申明，不同之处在于普通return会返回值并终止函数的执行，而yield会返回一个值给循环调用此生成器的代码并且只是暂停执行生成器函数。
+
+function xrange($start, $end, $step = 1) {
+    for ($i = $start; $i <= $end; $i += $step) {
+        yield $i;
+    }
+}
+ 
+foreach (xrange(1, 1000000) as $num) {
+    echo $num, "\n";
+}
+```
+
+yield关键字，当开始调用的时候返回一个迭代器，而这个迭代器实现了Iterator接口.
+
+```php
+调用迭代器的方法一次, 其中的代码运行一次.例如, 如果你调用$range->rewind(), 那么xrange()里的代码就会运行到控制流第一次出现yield的地方. 而函数内传递给yield语句的返回值可以通过$range->current()获取.
+
+为了继续执行生成器中yield后的代码, 你就需要调用$range->next()方法. 这将再次启动生成器, 直到下一次yield语句出现. 因此,连续调用next()和current()方法, 你就能从生成器里获得所有的值, 直到再没有yield语句出现.
+
+对xrange()来说, 这种情形出现在$i超过$end时. 在这中情况下, 控制流将到达函数的终点,因此将不执行任何代码.一旦这种情况发生,vaild()方法将返回假, 这时迭代结束.
+```
+
+所以也可以用Iterator实现上面的遍历。代码如下：
+
+```php
+// 模拟生成器 rang 函数
+class myIterator implements Iterator {
+    private $end   = 1000000;  //end
+    private $start = 1;     //start
+    private $step  = 1;     //步长
+
+    private $position;
+
+    public function __construct() {
+        $this->position = $this->start;
+    }
+
+    function rewind() {
+        $this->position = $this->start;
+    }
+
+    function current() {
+        return $this->position;
+    }
+
+    function key() {
+        return $this->position;
+    }
+
+    function next() {
+        $this->position += $this->step;
+    }
+
+    function valid() {
+        return $this->position <= $this->end;
+    }
+}
+
+$it = new myIterator();
+
+foreach ($it as $key => $value) {
+    echo $value . "\n";
+}
+```
+
+##### 2. 协程
+
+协程的支持是在迭代生成器的基础上, 增加了可以回送数据给生成器的功能(调用者发送数据给被调用的生成器函数). 这就把生成器到调用者的单向通信转变为两者之间的双向通信.
+
+传递数据的功能是通过迭代器的send()方法实现的. 下面的logger()协程是这种通信如何运行的例子：
+
+``` php
+function logger($fileName) {
+    $fileHandle = fopen($fileName, 'a');
+    while (true) {
+        fwrite($fileHandle, yield . "\n");
+    }
+}
+ 
+$logger = logger(__DIR__ . '/log');
+$logger->send('Foo');
+$logger->send('Bar')
+```
+
+正如你能看到,这儿yield没有作为一个语句来使用, 而是用作一个表达式, 即它能被演化成一个值. 这个值就是调用者传递给send()方法的值. 在这个例子里, yield表达式将首先被”Foo”替代写入Log, 然后被”Bar”替代写入Log.
+
+上面的例子里演示了yield作为接受者, 接下来我们看如何同时进行接收和发送的例子：
+
+```php
+function gen() {
+    $ret = (yield 'yield1');
+    var_dump($ret);
+    $ret = (yield 'yield2');
+    var_dump($ret);
+}
+ 
+$gen = gen();
+var_dump($gen->current());    // string(6) "yield1"
+var_dump($gen->send('ret1')); // string(4) "ret1"   (the first var_dump in gen)// string(6) "yield2" (the var_dump of the ->send() return value)
+var_dump($gen->send('ret2')); // string(4) "ret2"   (again from within gen) // NULL (the return value of ->send())
+
+
+function gen1() {
+    try{
+        var_dump(yield 'yield1');
+        var_dump(yield 'yield2');
+    } catch (Exception $ex) {
+        var_dump($ex->getMessage());
+    }
+}
+
+$gen = gen1();
+var_dump($gen->current()); //yield1
+var_dum($gen->send("ret1")); //ret1,yield2
+var_dump($gen->throw(new Exception("ret2"))); //ret2, NULL
+```
+
+1. 生成迭代对象的时候已经隐含地执行了rewind操作所以$gen->current()的值为yield1，程序此时在yield1处中断.
+
+2. 当调用`$gen->send('ret1')`的时候程序恢复执行，从yield1开始执行到yield2又中断，这个时候把传进来的值作为yield1语句的结果，并且恢复执行，所以这个时候yield1语句的返回ret值为ret1,var_dump($gen->send('ret1'))结果为yield2。
+
+3. 当调用`$gen->send('ret2')`的时候程序恢复执行,并返回发送的值所以生成器里第二个ret=ret2，下面已经没有可执行的程序了，那么到此结束，所以var_dump($gen->send('ret2'))结果为null
+
+4. 一定要弄清楚迭代器的执行顺序:
+
+   rewind()-vild()->current->key->next()->vild()->current()->key()->next()
+
+send的值在这里作为yield的值赋值给ret，然后把本身的值返回。在这里yield为接受者，也属于发送者，先把当前值发送出去，然后中断执行。
+
+##### PHP中协程如何理解？
+
+```csharp
+这里引用网上看到的一个的答案，说的比较好理解。具体来说，一个包含yeild的php函数，就是协程，他有阶段性的结算值 yield $var， 但是代码并不返回，php的调度者接到这个值后，喂给一个generator，generator是个实现了iterator接口的+和协程通讯接口（比如send方法）的实例，所以可以用在for循环里（另个接口负责和协程通讯）。那么generator收到了这个协程的阶段性的值后，他喂给for循环，等for循环下一次循环的时候，他又启动这个协程，协程从上次中断的点继续执行，继续计算，继续yeild值给generator，generator喂for循环，继续循环，直到协程执行完毕。关于迭代器的运行顺序参考官方文档。
+```
+
+
 
 #### PSR 是什么，PSR-1, 2, 4, 7
 
@@ -3821,6 +4089,134 @@ header('Location: http://www.jbxue.com'.$request_uri); // 跳转到目标
 #### 如何异步执行命令
 
 #### 如何实现链式操作 $obj->w ()->m ()->d ();
+
+```php
+# __call : 在对象中调用一个不可访问方法时， __call()会被调用
+# 在静态上下文中调用一个不可访问方法时，__callStatic() 会被调用。
+# $name 参数是要调用的方法名称。$arguments 参数是一个枚举数组，包含着要传递给方法 $name 的参数。
+class MethodTest 
+{
+    public function __call($name, $arguments) 
+    {
+        // 注意: $name 的值区分大小写
+        echo "Calling object method '$name' "
+             . implode(', ', $arguments). "\n";
+    }
+
+    /**  PHP 5.3.0之后版本  */
+    public static function __callStatic($name, $arguments) 
+    {
+        // 注意: $name 的值区分大小写
+        echo "Calling static method '$name' "
+             . implode(', ', $arguments). "\n";
+    }
+}
+
+$obj = new MethodTest;
+$obj->runTest('in object context');
+
+MethodTest::runTest('in static context'); 
+
+// 运行结果
+// Calling object method 'runTest' in object context
+// Calling static method 'runTest' in static context
+```
+
+```php
+# call_user_func 把第一个参数作为回调函数调用
+# call_user_func(callable $callback, mixed ...$args): mixed  第一个参数 callback 是被调用的回调函数，其余参数是回调函数的参数。
+# callback 将被调用的回调函数
+# args 0个或以上的参数，被传入回调函数
+## 请注意，传入call_user_func()的参数不能为引用传递。
+
+function increment(&$var)
+{
+    $var++;
+}
+
+$a = 0;
+call_user_func('increment', $a);
+echo $a."\n"; // Warning: Parameter 1 to increment() expected to be a reference, value given in …  0
+
+
+// it is possible to use this instead
+call_user_func_array('increment', array(&$a));
+echo $a."\n"; // 1
+
+// it is also possible to use a variable function
+$increment = 'increment';
+$increment($a);
+echo $a."\n"; // 2
+
+```
+
+```php
+// call_user_func_array 调用回调函数，并把一个数组参数作为回调函数的参数
+// call_user_func_array(callable $callback, array $args): mixed
+// 把第一个参数作为回调函数（callback）调用，把参数数组作（args）为回调函数的的参数传入。
+```
+
+
+
+##### 1. 使用魔法函数`__call`结合`call_user_func`来实现
+
+首先定义一个字符串类StringHelper，构造函数直接赋值value，然后链式调用`trim()`和`strlen()`函数，通过在调用的魔法函数`__call()`中使用`call_user_func`来处理调用关系，实现如下：
+
+```php
+class StringHelper 
+{
+  private $value;
+  function __construct($value){
+    $this->value = $value;
+  }
+  function __call($function, $args){
+    $this->value = call_user_func($function, $this->value, $args[0]);
+    return $this;
+  }
+  function strlen() {
+    return strlen($this->value);
+  }
+}
+$str = new StringHelper(" sd f 0");
+echo $str->trim('0')->strlen();
+```
+
+##### 2. 使用魔法函数`__call`结合`call_user_func_array`来实现
+
+```php
+class StringHelper 
+{
+  private $value;
+  function __construct($value)
+  {
+    $this->value = $value;
+  }
+  function __call($function, $args){
+    array_unshift($args, $this->value);
+    $this->value = call_user_func_array($function, $args);
+    return $this;
+  }
+  function strlen() {
+    return strlen($this->value);
+  }
+}
+$str = new StringHelper(" sd f 0");
+echo $str->trim('0')->strlen();
+```
+
+##### 3. 不使用魔法函数`__call`来实现
+
+只需要修改`_call()`为`trim()`函数即可：
+
+```php
+public function trim($t)
+{
+  $this->value = trim($this->value, $t);
+  return $this;
+}
+```
+
+重点在于，返回`$this`指针，方便调用后者函数。
 
 #### traits 与 interfaces 区别 及 traits 解决了什么痛点？
 
@@ -4017,6 +4413,39 @@ flightHandler({
 总而言之，jsonp不是ajax的一个特例，哪怕jquery等巨头把jsonp封装进了ajax，也不能改变着一点！
 
 #### RSA 是什么
+
+RSA算法是一种非对称加密算法，这一算法主要依靠分解大素数的复杂性来实现其安全性，由于大素数之积难被分解，因此该密码就难被破解。
+
+原理：
+
+RSA基于一个十分简单的数论事实：将两个大素数相乘十分容易，但想要对其乘积进行因式分解却极其困难，因此可以将乘积公开作为加密密钥，即公钥，而两个大素数组合成私钥。公钥是可发布的供任何人使用，私钥则为自己所有，供解密之用。
+
+![img](php.assets/v2-09bd331953b97bb56ab1bd4115691e86_1440w.jpg)
+
+RSA公私钥生成流程
+
+1. 随机找两个质数P和Q，P与Q越大，越安全。（例如：61和53）
+2. 计算p和q的乘积n。（n=61×53=3233，n的长度就是密钥长度。3233写成二进制是110010100001，一共有12位，所以这个密钥就是12位。）
+3. 计算 n 的欧拉函数φ(n)。（根据公式φ(n)=(p-1)(q-1)算出φ(3233)等于60×52，即3120）
+4. 随机选择一个整数e，条件是1<e<φ(n)，且e与φ(n) 互质。（条件是1<e<φ(n)，且e与φ(n) 互质。1到3120之间，随机选择了17。）
+5. 有一个整数d，可以使得ed 除以φ(n) 的余数为 1。（ed ≡ 1 (mod φ(n))，即17*2753 mode 3120=1）
+6. 将n和e封装成公钥，n和d封装成私钥。（n=3233，e=17，d=2753，所以公钥就是：3233,17，私钥就是：3233, 2753。）
+
+
+
+RSA加密
+
+首先对明文进行比特串分组，使得每个分组对应的十进制数小于n，然后依次对每个分组m做一次加密，所有分组的密文构成的序列就是原始消息的加密结果，即m满足0<=m<n，则加密算法为：c=m^e mod n; c为密文，且0<=c<n。
+
+RSA解密
+
+对于密文0<=c<n，解密算法为：m=c^d mod n。
+
+RSA加密算法的优缺点
+
+优点：RSA算法是国际标准算法，属于主流算法之一，应用广泛，兼容性比较广，能够适用于各种不同的系统之中，不容易出现限制问题。
+
+缺点：RSA算法加密长度为2048位，对于服务器的消耗是比较大的，计算速度也比较慢，效率偏低，一般只适用于处理小量数据。
 
 #### 限流（木桶、令牌桶）
 
