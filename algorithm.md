@@ -1,6 +1,8 @@
 
 
-## 算法
+## 算法 https://learnku.com/articles/63956
+
+https://learnku.com/go/t/65436
 
 ### 分治法
 
