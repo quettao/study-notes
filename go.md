@@ -436,7 +436,7 @@ chan<- int是一个只能发送的通道，可以发送但是不能接收；
 | (wg *WaitGroup) Done()          | 计数器-1            |
 | (wg *WaitGroup) Wait()          | 阻塞直到计数器变为0 |
 
-sync.WaitGroup内部维护着一个计数器，计数器的值可以增加和减少。例如当我们启动了N 个并发任务时，就将计数器值增加N。每个任务完成时通过调用Done()方法将计数器减1。通过调用Wait()来等待并发任务执行完，当计数器值为0时，表示所有并发任务已经完成。
+sync.WaitGroup内部维护着一个计数器，计数器的值可以增加和减少。例如当我们启动了N 个并发任务时，就将计数器值增加N。每个任务完成时通过调用Done()方法将计数器减1。通过调用Wait()来等待并发任务执行完，当计数器值为0时，表示所有并发任务已经完成。BV 
 
 ```go
 var wg sync.WaitGroup
@@ -635,6 +635,52 @@ func main() {
 
 #### 基础问题
 
+#### json数据解码的两种方法NewDecoder与Unmarshal
+
+##### 1. json.Unmarshal
+
+```go
+func HandleUse(w http.ResponseWriter, r *http.Request) {
+  var u Use // use 结构体
+  data, err := ioutil.ReadAll(r.Body) // http 请求得到的json格式数据，转化为[]byte格式数据
+  if err != nil {
+    w.WriteHeader(http.StatusBadRequest)
+    return
+  }
+  if err := json.Unmarshal(data, &u); err != nil {
+    w.WriteHeader(http.StatusInternalServerError)
+    return
+  }
+  
+  w.WriteHeader(http.StatusOK)
+  fmt.Fprintf("")
+}
+```
+
+##### 2. json.NewDecoder
+
+```go
+func HandleUse(w http.ResponseWriter, r *http.Request) {
+  var u Use
+  if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+    w.WriteHeader(http.StatusInternalServeError)
+    return
+  }
+  w.WriteHeader(http.StatusOK)
+}
+```
+
+##### 区别
+
+1、json.NewDecoder是从一个`流`里面直接进行解码，代码精干；
+2、json.Unmarshal是从已存在与内存中的json进行解码；
+3、相对于解码，json.NewEncoder进行大JSON的编码比json.marshal性能高，因为内部使用pool。
+
+##### 应用场景
+
+1、json.NewDecoder用于http连接与socket连接的读取与写入，或者文件读取；
+2、json.Unmarshal用于直接是byte的输入。
+
 - **go语言slice和map底层实现原理**
 
   ```go
@@ -751,13 +797,13 @@ type hmap struct {
 
 
 
-##### go struct 能不能比较
+#### go struct 能不能比较
 
 ```
 因为是强类型语言，所以不同类型的结构不能作比较，但是同一类型的实例值是可以比较的，实例不可以比较，因为是指针类型
 ```
 
-### 值传递和指针传递有什么区别
+#### 值传递和指针传递有什么区别
 
 值传递：会创建一个新的副本并将其传递给所调用函数或方法 指针传递：将创建相同内存地址的新副本
 
