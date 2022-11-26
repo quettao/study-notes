@@ -1480,6 +1480,12 @@ Golang运行时的内存分配算法主要源自 Google 为 C 语言开发的`TC
 - mcache, mcentral, mheap是Go内存管理的三大组件，层层递进。mcache管理线程在本地缓存的mspan；mcentral管理全局的mspan供所有线程使用；mheap管理Go的所有动态分配内存。
 - 极小对象会分配在一个object中，以节省资源，使用tiny分配器分配内存；一般小对象通过mspan分配内存；大对象则直接由mheap分配内存。
 
+##### Go 常见内存泄露的情况
+
+1. 获取长字符串中的一段导致长字符串未释放
+2. 取长slice中的一段导致长slice未释放 
+3. 在长slice新建slice导致泄露0
+
 #### 线程有几种模型
 
 3种，一对一模型，多对一模型，多对多模型

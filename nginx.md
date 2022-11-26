@@ -1,5 +1,23 @@
 ### nginx
 
+#### 命令行
+
+```
+nginx [cmd]
+
+-?、-h ：帮助
+-c [配置文件路径] ：使用指定的配置文件
+-g ：指定配置指令
+-p ：指定运行目录
+-s ：发送信号
+    stop ：立刻停止服务
+    quit ：优雅的停止服务
+    reload ：重载配置文件
+    reopen ：重新开始记录日志文件
+-t、-T ：测试配置文件是否有语法错误
+-v 、-V ：打印nginx的版本信息、编译信息等
+```
+
 #### 配置文件结构
 
 main block : 主配置段，也即全局配置段
@@ -149,6 +167,33 @@ client_max_body_size 8m;
 # 设置服务器端传送http响应信息到客户端的超时时间
 send_timeout 60s;
 ```
+
+##### 日志自定义设置
+
+```nginx
+#定义日志格式
+    #$remote_addr:远端的ip地址
+    #$time_local:当时时间
+    #$status:状态码
+    #
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log logs/my_api.access.log main;
+```
+
+##### 切割日志
+
+```nginx
+# 剪切log
+mv access.log bak.log
+
+# 重新开始记录日志文件
+/sbin/nginx -s reopen
+```
+
+
 
 ##### FastCGI参数是和动态服务器交互起作用的参数
 
