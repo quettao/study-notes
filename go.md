@@ -47,7 +47,7 @@ func main() {
         for i := 0; i < 2; i++ {
             fmt.Println(s)
         }
-    }("world")
+    }("world") 
     
     // 主协程
     for i := 0; i < 2; i++ {
@@ -270,7 +270,7 @@ func main() {
 
  无缓冲通道上的发送操作会阻塞，直到另一个goroutine在该通道上执行接收操作，这时值才能发送成功，两个goroutine将继续执行。相反，如果接收操作先执行，接收方的goroutine将阻塞，直到另一个goroutine在该通道上发送一个值。 
 
-没， 使用无缓冲通道进行通信将导致发送和接收的goroutine同步化。因此，无缓冲通道也被称为同步通道。 
+使用无缓冲通道进行通信将导致发送和接收的goroutine同步化。因此，无缓冲通道也被称为同步通道。 
 
 **有缓冲的通道**
 
@@ -613,7 +613,7 @@ func mutexAdd() {
 // 原子操作版加函数
 func atomicAdd() {
     atomic.AddInt64(&x, 1)
-    wg.Done()
+    wg.Done() 
 }
 
 func main() {
@@ -2322,7 +2322,7 @@ func add(c chan int) {
       select {
       case input := <-c:
          // 不断读取c中的随机数据进行加总
-         sum = sum + input
+         sum = sum + inpu
       case <-t.C:
          c = nil
          fmt.Println(sum)
@@ -2378,7 +2378,7 @@ func receive(c chan int) {
 
 #### go的调度
 
-go的调度原理是基于GMP模型，G代表一个goroutine，不限制数量；M=machine，代表一个线程，最大1万，所有G任务还是在M上执行；P=processor代表一个处理器，每一个允许的M都会绑定一个G，默认与逻辑CPU数量相等（通过runtime.GOMAXPROCS(runtime.NumCPU())设置）。
+go的调度原理是基于GMP模型，G代表一个goroutine，不限制数量；M=machine，代表一个线程，最大1万，所有G任务还是在M上执行；P=processor代表一个处理器，每一个允许的M都会绑定一个P，默认与逻辑CPU数量相等（通过runtime.GOMAXPROCS(runtime.NumCPU())设置）。
 
  go调用过程： 
 

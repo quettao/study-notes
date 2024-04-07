@@ -701,6 +701,212 @@ MVCC 最大的好处是读不加锁，读写不冲突，极大地增加了 MySQL
 
 
 
+#### mysql 函数
+
+#####  转换函数
+
+```mysql
+# cast(expression as data_type)
+# 用于将某种数据类型的表达式显式转换为另一种数据类型，cast()函数的参数是一个表达式，它包括用as关键字分隔的源值和目标数据类型
+* expression: 任何有效的表达式
+* AS: 用于分隔两个参数，在AS之前的是要处理的数据，在AS之后是要转换的数据类型
+* data_type: 目标系统所提供的数据类型，包括bigint和sql_variant,不能使用用户定义的数据类型。
+
+# 可以转换的类型
+* 二进制，同带binary前缀的效果: BINARY
+* 字符型，可带参数: CHAR()
+* 日期: DATE
+* 时间: TIME
+* 日期时间型: DATETIME
+* 浮点型: DECIMAL
+* 整数: SIGNED
+* 无符号整数: UNSIGNED
+
+# 实例
+select cast("9.0" as decimal); # 9
+```
+
+##### 逻辑函数
+
+```mysql
+# IFNULL(expression, alt_value)
+# 判断第一个表达式是否为 NULL，如果为 NULL 则返回第二个参数的值，如果不为 NULL 则返回第一个 参数的值。
+
+# IF(expr1,expr2,expr3)
+# 如果expr1的值为true，则返回expr2的值，如果expr1的值为false，则返回expr3的值。
+
+# CASE WHEN expr1 THEN expr2 [WHEN expr3 THEN expr4…ELSE expr] END
+# 如果expr1的值为true，则返回expr2的值，如果expr3的值为false，则返回expr4的值…
+```
+
+##### 开窗函数
+
+```mysql
+# 开窗函数是在满足某种条件的记录集合上执行的特殊函数。对于每条记录都要在此窗口内执行函数，有的函数随着记录不同，窗口大小都是固定的，这种属于静态窗口;有的函数则相反，不同的记录对应着不同的窗口，这种动态变化的窗口叫滑动窗口。开窗函数的本质还是聚合运算，只不过它更具灵活性，它对数据的每一行，都使用与该行相关的行进行计算并返回计算结果。
+
+# 语法
+开窗函数名([<字段名>]) over([partition by <分组字段>] [order by <排序字段> [desc]] [< 窗口分区>])
+
+# 开窗函数的一个概念是当前行，当前行属于某个窗口，窗口由over关键字用来指定函数执行的窗口范围，如果后面括号中什么都不写，则意味着窗口包含满足where条件的所有行，开窗函数基于所有行进 行计算;如果不为空，则有三个参数来设置窗口:
+* partition by <分组字段>：窗口按照哪些字段进行分组，开窗函数在不同的分组上分别执行。
+* order by <排序字段>：按照哪些字段进行排序，开窗函数将按照排序后的记录顺序进行编号。可以和 partition by <分组字段>配合使用，也可以单独使用。
+* < 窗口分区>：它是排序之后的功能扩展，标识在排序之后的一个范围
+
+rows|range between start_expr and end_expr
+# 其中rows和range为二选其一：
+# rows是物理范围，即根据order by子句排序后，取的前N行及后N行的数据计算（与当前行的值无关，只与排序后的行号相关）；
+# range是逻辑范围，根据order by子句排序后，指定当前行对应值的范围取值，行数不固定，只要行值在范围内，对应行都包含在内。
+# between start_expr and end_expr来指定范围的起始点和终结点，start_expr为起始点，end_expr为终结点。
+tart_expr为起始点，end_expr为终结点，有下面几种选项：
+* current row：以当前行为起点。
+* unbounded preceding：指明窗口开始于分组的第一行，以排序之后的第一行为起点。
+* unbounded following：以排序之后的最后一行为终点。
+* n preceding：以当前行的前面第n行为起点。
+* n following：以当前行的后面第n行为起点。
+
+# 比如，如下几个示例
+rows between 1 preceding and 1 following # 窗口范围是当前行、前一行、后一行一共三行记录。 
+rows unbounded preceding # 窗口范围是分区中的第一行到当前行。
+rows between unbounded preceding and unbounded following # 窗口范围是当前分区中所有行， 等同于不写。
+
+# 开窗函数和普通聚合函数的区别:
+1. 聚合函数是将多条记录聚合为一条;而开窗函数是每条记录都会执行，有几条记录执行完还是几条。
+2. 聚合函数也可以用于开窗函数中
+
+# 窗口函数及应用
+不是所有的函数都支持开窗函数，目前支持的窗口函数有：
+排名函数：row_number()、rank()、dense_rank()
+聚合函数：sum()、avg()、count()、max()、min()
+错行函数：lead()、lag()
+取值函数：first_value()、last_value
+分箱函数：ntile()
+
+# 1. 排名函数
+row_number()：未指定分组partition by子句，则全部数据视为一个分组进行排序，在分组内部进行排序，组内的排序是连续且唯一的。
+rank()：未指定分组partition by子句，则全部数据视为一个分组进行排序，在分组内部进行跳跃排序，有相同的排名时，有相同序号，排序序号不连续。
+dense_rank()：未指定分组partition by子句，则全部数据视为一个分组进行排序，在分组内部进行连续排序，有相同排名时，有相同序号，但是排序序号连续。
+
+-- rank 开窗函数
+
+select *,
+-- 对全部学生按数学分数排序 
+rank() over(order by math) as rank1,
+-- 对院系 按数学分数排序
+rank() over(partition by departmentId order by math) as rank2,
+-- 对每个院系每个班级 按数学分数排序
+rank() over(partition by departmentId,classId order by math) as rank3
+from student_scores;
+
+-- 结果
++------+-----------+----------+------+---------+---------+--------------+-------+-------+-------+
+| id   | studentId | language | math | english | classId | departmentId | rank1 | rank2 | rank3 |
++------+-----------+----------+------+---------+---------+--------------+-------+-------+-------+
+|    1 |       111 |       68 |   69 |      90 | class1  | department1  |     1 |     1 |     1 |
+|    3 |       113 |       90 |   74 |      75 | class1  | department1  |     3 |     3 |     2 |
+|    2 |       112 |       73 |   80 |      96 | class1  | department1  |     9 |     6 |     3 |
+|    5 |       115 |       99 |   93 |      89 | class1  | department1  |    15 |     8 |     4 |
+|    4 |       114 |       89 |   94 |      93 | class1  | department1  |    17 |     9 |     5 |
+|    9 |       124 |       76 |   70 |      76 | class2  | department1  |     2 |     2 |     1 |
+|    6 |       121 |       96 |   74 |      79 | class2  | department1  |     3 |     3 |     2 |
+|    8 |       123 |       70 |   78 |      61 | class2  | department1  |     7 |     5 |     3 |
+|    7 |       122 |       89 |   86 |      85 | class2  | department1  |    14 |     7 |     4 |
+|   15 |       216 |       85 |   74 |      93 | class1  | department2  |     3 |     1 |     1 |
+|   14 |       215 |       84 |   82 |      73 | class1  | department2  |    11 |     5 |     2 |
+|   11 |       212 |       76 |   83 |      75 | class1  | department2  |    12 |     6 |     3 |
+|   10 |       211 |       89 |   93 |      60 | class1  | department2  |    15 |     8 |     4 |
+|   12 |       213 |       71 |   94 |      90 | class1  | department2  |    17 |     9 |     5 |
+|   13 |       214 |       94 |   94 |      66 | class1  | department2  |    17 |     9 |     5 |
+|   18 |       223 |       79 |   74 |      96 | class2  | department2  |     3 |     1 |     1 |
+|   17 |       222 |       80 |   78 |      96 | class2  | department2  |     7 |     3 |     2 |
+|   19 |       224 |       75 |   80 |      78 | class2  | department2  |     9 |     4 |     3 |
+|   20 |       225 |       82 |   85 |      63 | class2  | department2  |    13 |     7 |     4 |
+|   16 |       221 |       77 |   99 |      61 | class2  | department2  |    20 |    11 |     5 |
++------+-----------+----------+------+---------+---------+--------------+-------+-------+-------+
+
+# 2. 错行函数
+lead()：向下取值，如果向下取值没有数据的时候显示为NULL。
+lag()：向上取值，如果向上取值没有数据的时候显示为NULL。
+lead(expr,<offset>,<default>) over(partition by col1 order by col2)
+lag(expr,<offset>,<default>) over(partition by col1 order by col2)
+其中：
+expr通常是直接是列名，也可以是从其他行返回的表达式；
+offset是默认为1，表示在当前分区内基于当前行的偏移行数；
+default是在offset指定的偏移行数超出了分组的范围时(因为默认会返回null)，可以通过设置这个字段来返回一个默认值来替代null。
+# 例如
+select t.id
+     , t.name
+     , t.sale
+     , lead(sale) over (order by sale)                 as lead1 -- 只有排序，没有分组，则全部数据视为一个分组进行排序
+     , lead(sale) over (partition by id order by sale) as lead2 -- 指定分组排序
+     , lead(sale, 2, 'empty') over (order by sale)     as lead3 -- 分组排序，向下偏移2，没有数据显示 empty
+     , lag(sale) over (order by sale)                  as lag1
+     , lag(sale) over (partition by id order by sale)  as lag2
+     , lag(sale, 2, 'empty') over (order by sale)      as lag3
+from test as t;
++------+------+------+-------+-------+-------+------+------+-------+
+| id   | name | sale | lead1 | lead2 | lead3 | lag1 | lag2 | lag3  |
++------+------+------+-------+-------+-------+------+------+-------+
+|    1 | aaa  |  100 |   200 |   200 | 200   | NULL | NULL | empty |
+|    1 | bbb  |  200 |   200 |   200 | 200   |  100 |  100 | empty |
+|    1 | ccc  |  200 |   200 |   300 | 300   |  200 |  200 | 100   |
+|    1 | ddd  |  300 |   400 |  NULL | empty |  200 |  200 | 200   |
+|    2 | fff  |  200 |   300 |   400 | 400   |  200 | NULL | 200   |
+|    2 | eee  |  400 |  NULL |  NULL | empty |  300 |  200 | 200   |
++------+------+------+-------+-------+-------+------+------+-------+
+# lead函数与lag函数是两个偏移量函数，主要用于查找当前行字段的上一个值或者下一个值，可以设定偏移量和没有数据返回的默认值。
+
+# 3. 取值函数
+first_value(expr) over(partition by col1 order by col2)
+last_value(expr) over(partition by col1 order by col2)
+其中expr通常是直接是列名，也可以是从其他行返回的表达式，根据字段col1进行分组，在分组内部根据字段col2进行排序，first_value函数返回一组排序值后的第一个值，last_value返回一组排序值后的最后一个值。
+# 例如
+select t.id
+     , t.name
+     , t.sale
+     , first_value(sale) over ()                              as first_value1 -- 没有分组和排序
+     , first_value(sale) over (order by sale)                 as first_value2 -- 没有分组只有排序
+     , first_value(sale) over (partition by id order by sale) as first_value3 -- 分组排序，第一个值
+     , last_value(sale) over ()                               as last_value1
+     , last_value(sale) over (order by sale)                  as last_value2
+     , last_value(sale) over (partition by id order by sale)  as last_value3
+from test as t;
++------+------+------+--------------+--------------+--------------+-------------+-------------+-------------+
+| id   | name | sale | first_value1 | first_value2 | first_value3 | last_value1 | last_value2 | last_value3 |
++------+------+------+--------------+--------------+--------------+-------------+-------------+-------------+
+|    1 | aaa  |  100 |          100 |          100 |          100 |         400 |         100 |         100 |
+|    1 | bbb  |  200 |          100 |          100 |          100 |         400 |         200 |         200 |
+|    1 | ccc  |  200 |          100 |          100 |          100 |         400 |         200 |         200 |
+|    1 | ddd  |  300 |          100 |          100 |          100 |         400 |         300 |         300 |
+|    2 | fff  |  200 |          100 |          100 |          200 |         400 |         200 |         200 |
+|    2 | eee  |  400 |          100 |          100 |          200 |         400 |         400 |         400 |
++------+------+------+--------------+--------------+--------------+-------------+-------------
+
+
+# 4. 分箱函数
+ntile(ntile_num) over(partition by col1 order by col2)
+ntile_num是一个整数，用于创建“桶”的数量，即分组的数量，不能小于等于0。其次需要注意的是，在over函数内，尽量要有排序order by 子句。
+# 例如
+select t.id
+     , t.name
+     , t.sale
+     , ntile(4) over (order by sale)                 as ntile1
+     , ntile(4) over (partition by id order by sale) as ntile2
+from test as t;
++------+------+------+--------+--------+
+| id   | name | sale | ntile1 | ntile2 |
++------+------+------+--------+--------+
+|    1 | aaa  |  100 |      1 |      1 |
+|    1 | bbb  |  200 |      1 |      2 |
+|    1 | ccc  |  200 |      2 |      3 |
+|    1 | ddd  |  300 |      3 |      4 |
+|    2 | fff  |  200 |      2 |      1 |
+|    2 | eee  |  400 |      4 |      2 |
++------+------+------+--------+--------+
+
+```
+
+
+
 #### mysql 线程池
 
 ###### thread pool 原理分析
@@ -852,7 +1058,7 @@ SELECT SUBSTRING_INDEX('www.csdn.net','.',-2) from web_info w; # csdn.net
 SELECT SUBSTRING_INDEX(substring_index('www.csdn.net','.',2),'.',-1) from web_info w; # csdn
 ```
 
-##### 3. mysql replace函数的几种使用场景？
+##### 3. mysql replace函数的几种使用场景
 
 ```sql
 # 将String中所有出现的from_str替换为to_str，这里的from_str不支持正则匹配。
@@ -987,7 +1193,7 @@ END
 1. 用在更新语句的更新条件中
 	给个情景1：妇女节大回馈，2020年注册的新用户，所有成年女性账号送10元红包，其他用户送5元红包，自动充值。
 	UPDATE users_info u 
-       SET u.balance = CASE WHEN u.sex ='女' and u.age > 18 THEN u.balance + 10 
+       SET u.balance = CASE WHEN u.sex ='女' and u.age > 18 THEN u.balance + 10 
                          ELSE u.balance + 5 end 
                          WHERE u.create_time >= '2020-01-01'
 2. 用在查询语句的返回值中
@@ -1161,7 +1367,7 @@ InnoDB
 
 	6. 写入查询结果集
 	 如果查询结果集需要写入到表中，可以结合insert和select，将select语句的结果集直接插入到指定表中。
-	 例如：创建一个统计成绩的表statistics，记录各班的平均成绩：
+	 例如：创建一个统计成绩的表statistics，记录各班的平均成绩：  
 	 CREATE TABLE statistics (
     		id BIGINT NOT NULL AUTO_INCREMENT,
     		class_id BIGINT NOT NULL,
@@ -1528,7 +1734,7 @@ AS select_statement # select_statement：创建视图的 SELECT语句，可以�
 ##### 18. InnoDB存储引擎特性有哪些？
 
 1. 采用多版本并发控制（MVCC，MultiVersion Concurrency Control）来支持高并发。并且实现了四个标准的隔离级别，通过间隙锁next-key locking策略防止幻读的出现。
-2. 引擎的表基于聚簇索引建立，聚簇索引对主键查询有很高的性能。不过它的二级索引secondary index非主键索引中必须包含主键列，所以如果主键列很大的话，其他的所有索引都会很大。因此，若表上的索引较多的话，主键应当尽可能的小。另外InnoDB的存储格式是平台独立。
+2. 引擎的表基于聚簇索引建立，聚簇索引对主键查询有很高的性能。不过它的二级索引secondary index非主键索引中必须包含主键列，所以如果主键列很大的话，其他的所有索引都会很大。因此，若表上的索引较多的话，主键应当尽可能的小。另外InnoDB的存储格式是平台独立。 
 3. InnoDB做了很多优化，比如：磁盘读取数据方式采用的可预测性预读、自动在内存中创建hash索引以加速读操作的自适应哈希索引（adaptive hash index)，以及能够加速插入操作的插入缓冲区（insert buffer)等。
 4. InnoDB通过一些机制和工具支持真正的热备份，MySQL 的其他存储引擎不支持热备份，要获取一致性视图需要停止对所有表的写入，而在读写混合场景中，停止写入可能也意味着停止读取。
 

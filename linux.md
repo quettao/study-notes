@@ -270,3 +270,26 @@ ESTABLISHED 31
 
 ```
 
+### awk
+
+awk工作原理：均是一行一行的读取，处理；awk将一行分成数个字段来处理
+
+#### awk语法
+
+```linux
+awk ‘BEGIN {commands} pattern {commands}END{commands}' file1
+BEGIN:处理数据前执行的命令
+END：处理数据后执行的命令
+pattern：模式，每一行都执行的命令
+BEGIN和END里的命令只是执行一次
+pattern里的命令会匹配每一行去处理
+
+# 例如 
+awk -F ":" '{print $1,$2,$5}' /etc/passwd | head -5
+
+# -F ":"  ：  awk选项，指定输入分割符为：，
+# '{print}'    : 固定语法
+# $1,$2,$5  :输出第一个，第二个，第五个字段
+# ，  ： 是输出分隔符，如果不加默认是没有分隔符的。
+```
+

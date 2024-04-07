@@ -27,7 +27,7 @@ cat hello.txt | awk 'NR==3, NR==5{print;}'
 
 pattern参数可以是egrep正则中的一个，正则使用/pattern/
 
-例子：显示hello.txt中，正则匹配hello的行
+例子：显示hello.txt中，正则匹配hello的行 
 
 ```bash
 cat hello.txt | awk '/hello/'
